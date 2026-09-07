@@ -2,9 +2,10 @@
 # Roda DENTRO do chroot arm64 (via qemu-aarch64-static).
 # Instala:
 #   - headers do kernel (necessário pro DKMS compilar o módulo)
-#   - driver AIC8800 (WiFi USB) via DKMS, mesmos pacotes que o Armbian usa
-#     (radxa-pkg/aic8800, extensão radxa-aic8800.sh)
+#   - driver AIC8800 (WiFi+Bluetooth USB, chip combo) via DKMS, mesmos
+#     pacotes que o Armbian usa (radxa-pkg/aic8800, extensão radxa-aic8800.sh)
 #   - alsa-utils (aplay/amixer/speaker-test) pra testar áudio de verdade
+#   - bluez + rfkill pro Bluetooth (mesmo dongle, ver docs/pesquisa.md §4.6)
 set -euxo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
@@ -28,7 +29,8 @@ Driver=usb
 NamePolicy=kernel
 EOF
 
-apt-get install -y alsa-utils
+apt-get install -y alsa-utils bluez rfkill
+systemctl enable bluetooth
 
 rm -f /root/pkgs/linux-headers-*.deb /root/pkgs/aic8800-*.deb
 

@@ -206,9 +206,31 @@ Com isso ativado, `speaker-test -D hw:0,0` (fone P2) e `speaker-test -D hw:0,1` 
 
 **Nota pra Fase 2 (Desktop):** isso funcionou via ativação manual do UCM. Num desktop de verdade, quem faz essa ativação automaticamente quando um app pede pra tocar som é o **PipeWire + WirePlumber** (o backend ALSA/UCM do WirePlumber lê exatamente esse `HiFi.conf`). Não precisamos fazer nada extra além de instalar `pipewire`/`wireplumber` normalmente na Fase 2 — o mesmo UCM que validamos aqui deve funcionar automaticamente lá.
 
+## 4.6 WiFi onboard (WCN6750) — por que não vale a pena perseguir, e Bluetooth (resolvido)
+
+Investigando mais a fundo pra decidir entre consertar o WiFi onboard ou aceitar o dongle USB:
+
+**O nó de device-tree do WiFi onboard está genuinamente incompleto — não é só faltar uma propriedade.** O `qcs6490-radxa-dragon-q6a.dtb` tem a infraestrutura de sinalização `smp2p-wpss` (o canal de IPC entre o AP e o "WLAN Processor Subsystem"), mas **não existe nenhum nó `remoteproc@<endereço>` pro WPSS** — só `remoteproc@3700000` (adsp) e `remoteproc@a300000` (cdsp). Sem esse nó, o kernel não tem como ligar/carregar firmware num WCN6750 via PCIe/remoteproc de jeito nenhum. Escrever esse nó do zero (endereços de registrador, clocks, power-domains corretos) é trabalho de bring-up de kernel referenciando fontes downstream da Qualcomm — múltiplos dias, sem garantia de sucesso.
+
+**Mas o módulo WiFi real dessa placa nem é o WCN6750 via PCIe.** Segundo a documentação da Radxa, o módulo é um **Quectel FCU760K** — que segundo a própria Quectel usa **interface USB 2.0**, não PCIe/SDIO. Isso bate com o que achamos no device-tree: existe um nó `wifi@4` dentro do hub USB interno (`hub@1`, `compatible = "usb1a40,0101"` — o MESMO chip de hub 1a40:0101 que vemos de verdade em `/sys/bus/usb/devices/1-1`), na porta 4 — ao lado das portas 1-3 que vão pras USB-A externas. Ou seja: o "WiFi onboard" dessa placa (quando presente) é só mais um dispositivo USB atrás do mesmo hub interno, não uma via PCIe/remoteproc — o achado do WPSS remoteproc ausente citado acima é real, mas irrelevante pra esse módulo específico (só importaria se fosse WCN6750 puro via PCIe).
+
+O `compatible = "usba69c,8d80"` desse nó `wifi@4` bate com o vendor:product ID exato do nosso dongle AIC8800 de teste — sugerindo que o FCU760K da Quectel provavelmente usa um chip AICSemi por dentro também. Isso não deu pra confirmar 100% se essa unidade específica tem o módulo populado nessa posição (só inspeção visual da placa resolve com certeza) — mas mesmo que tenha, seria o mesmo chip/driver que já validamos funcionando via o dongle externo.
+
+**Decisão:** adotar o **AIC8800 via dongle USB** como a solução de WiFi+Bluetooth oficial do projeto — é exatamente a mesma abordagem que o Armbian usa oficialmente pra essa placa (`enable_extension "radxa-aic8800" AIC8800_TYPE="usb"`), já está funcionando (§4.3), e é o mesmo chip que a própria placa usaria "onboard" se o módulo estivesse populado.
+
+**Bluetooth: já vem de graça no mesmo dongle** (é um chip combo WiFi+BT). O driver `aic_btusb` já tinha sido compilado junto pelo DKMS (§4.3) — só faltava o `bluez` (userspace) instalado. Testado ao vivo por SSH: `bluetoothctl show` mostra o controller ativo (`Powered: yes`), `rfkill list` sem bloqueio. Adicionado `bluez` + `rfkill` em [scripts/lib/inner-install-wifi-audio-tools.sh](../scripts/lib/inner-install-wifi-audio-tools.sh) pra vir de fábrica na imagem.
+
 ## 4.5 SSH funcionando — muito mais rápido a partir daqui
 
 Conseguimos rede via **dongle USB Wi-Fi AIC8800** (o Wi-Fi onboard/WCN6750 não está completo no device-tree mainline que usamos, ver §4.3) + driver DKMS (§ anterior). Com IP na mão, geramos uma chave SSH dedicada (`~/.ssh/id_ed25519_q6a`, alias `q6a` no `~/.ssh/config` do desktop) — toda a investigação de áudio acima foi feita via SSH direto do terminal, sem precisar mais de teclado+captura de vídeo pra cada comando.
+
+## 4.7 Sobre o kernel ser 6.18 e não 7.x
+
+Voltando num ponto que incomoda (com razão): o Ubuntu 26.04 "de fábrica" usa kernel **7.0** (`linux-image-generic 7.0.0-31.31` — confirmado rodando neste próprio desktop). Estamos no **6.18.2** de propósito, não por limitação — é o branch `current` que o Armbian mantém pra essa placa (`radxa/kernel.git`, branch `linux-6.18.2`), com HDMI/áudio já resolvidos e agora validados na prática (§4.4).
+
+O board config do Armbian pra essa placa também oferece um branch **`edge` = kernel 7.2.3** (mais NOVO que o próprio 7.0 do Ubuntu, não mais velho — é a linha de ponta, não LTS). Ou seja, a escolha não é "6.18 vs 7.0 do Ubuntu" — é "6.18 testado/estável nessa placa" vs "7.2 mais novo ainda, porém menos testado nessa placa especificamente" (`KERNEL_TEST_TARGET="current,edge"` no board config indica que os dois são testados pelo Armbian, mas `current` é o default/recomendado).
+
+**Recomendação:** seguir no 6.18.2 pra fechar a Fase 2 (Desktop/GNOME) com a base já validada (HDMI, áudio, Wi-Fi/BT, systemd-boot — tudo testado nesse kernel). Migrar pra `edge` (7.2) depois é reproduzível: é só trocar `BRANCH=current` por `BRANCH=edge` no `./compile.sh kernel BOARD=radxa-dragon-q6a` e refazer os passos 02/02b/02c/03 — mas cada peça (firmware, UCM, driver aic8800 via DKMS) precisaria ser revalidada nesse kernel novo, já que a versão exata do kernel importa pra compatibilidade de ABI (foi exatamente esse tipo de mismatch, entre firmware e driver, que nos mordeu em §4.1/§4.3 — só que lá era firmware vendor vs. kernel mainline; trocar de branch dentro do mainline é mais seguro, mas não é zero-risco).
 
 ## 5. Próximos passos (Fase 1 — Server)
 
