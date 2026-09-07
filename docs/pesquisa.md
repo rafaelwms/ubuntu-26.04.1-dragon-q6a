@@ -157,6 +157,20 @@ usr/share/alsa/ucm2/conf.d/qcs6490/QCS6490-Radxa-Dragon-Q6A.conf
 
 Kernel instalado: `6.18.2-current-qcs6490` (`/usr/lib/modules/`, `/boot/vmlinuz` e `/boot/initrd.img` com os symlinks certos, gerados automaticamente pelo `postinst` do pacote). Tamanho do rootfs agora: ~2,3GB (a maior parte é o `linux-firmware` completo, ~740MB).
 
+## 4.3 Primeiro boot real na placa — funcionou, com dois ajustes
+
+Gravamos a imagem no SSD de testes (`nvme1n1`, via case USB/Thunderbolt) e testamos na Dragon Q6A de verdade, com saída HDMI numa placa de captura. **Resultado: bootou até o prompt de login, pela HDMI.** Kernel, systemd-boot, DTB via firmware, tudo funcionou de primeira.
+
+Dois problemas apareceram:
+
+**1. Sem usuário/senha.** O `debootstrap` não cria usuário nenhum, e nunca configuramos isso — `root` fica com senha trancada (`*` no shadow) por padrão no Ubuntu. Corrigido em [scripts/02b-configure-system.sh](../scripts/02b-configure-system.sh): cria usuário `radxa`/`radxa` com sudo, define hostname (`q6a-server` — o hostname anterior, uma string hex aleatória, vinha do próprio container Docker usado pra rodar o `debootstrap`/chroot, não do sistema em si), e habilita SSH.
+
+**2. `qcom-apm gprsvc: CMD timeout for [...] opcode` no dmesg — o áudio quebrado de novo, numa camada mais baixa.** Essa é a mesma família de bug do §2.2/§3.2, só que mais fundo: os blobs `adsp.mbn`/`cdsp.mbn` que extraímos do install real (vendor, antigo) falam uma versão do protocolo GPR/AudioReach que **não bate** com o driver `q6apm` do kernel mainline 6.18 que estamos usando. O APM do DSP simplesmente para de responder aos comandos GPR. Confirmado por relatos idênticos ("qcom-apm gprsvc: CMD timeout" + "q6apm-dai: Error queuing playback buffer -16") resolvidos exatamente da mesma forma que o `armbian/firmware#129` já tinha feito: **usar os blobs do `linux-firmware` puro, não os extraídos do vendor**.
+
+Ironia: meu passo de "reforçar com o firmware verificado" (§3.2/§4.1) fazia exatamente o oposto do que devia — sobrescrevia a versão certa (que o `apt install linux-firmware` já tinha instalado, como `.zst`) com a versão vendor errada (sem `.zst`, sobrepondo por nome de arquivo diferente, por isso os dois coexistiam sem conflito de pacote).
+
+**Correção:** removido o passo de reaplicar `artifacts/firmware-qcs6490-dragon-q6a/` por cima em [scripts/lib/provision-kernel-firmware.sh](../scripts/lib/provision-kernel-firmware.sh) e em [scripts/02-install-kernel-firmware.sh](../scripts/02-install-kernel-firmware.sh) — confiamos 100% no `linux-firmware` do Ubuntu pro ADSP/CDSP/topologia de áudio. **Lição geral:** firmware vendor combina com kernel vendor; firmware mainline combina com kernel mainline — não dá pra misturar. Mantemos `artifacts/firmware-qcs6490-dragon-q6a/` no repo só como referência (útil se um dia testarmos o kernel vendor/downstream, ver §3).
+
 ## 5. Próximos passos (Fase 1 — Server)
 
 1. ✅ `debootstrap` do rootfs Ubuntu 26.04 "resolute" arm64 puro — feito, ver [scripts/01-build-rootfs.sh](../scripts/01-build-rootfs.sh).

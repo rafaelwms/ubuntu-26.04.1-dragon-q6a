@@ -14,8 +14,11 @@ cp /kernel-debs/linux-image-*.deb /kernel-debs/linux-dtb-*.deb /rootfs/root/pkgs
 cp /scripts-lib/inner-provision.sh /rootfs/root/inner-provision.sh
 chmod +x /rootfs/root/inner-provision.sh
 
-mkdir -p /rootfs/usr/lib/firmware
-cp -a /fw-src/qcom /fw-src/ath11k /rootfs/usr/lib/firmware/
+# NÃO copiamos o firmware vendor extraído (artifacts/firmware-qcs6490-dragon-q6a) por cima --
+# ele tem um ABI (GPR/AudioReach) de uma versão diferente da que o driver q6apm do kernel
+# mainline 6.18 espera, causando "qcom-apm gprsvc: CMD timeout" e travando o áudio (mesmo bug
+# que o armbian/firmware#129 corrigiu). O `apt-get install linux-firmware` abaixo já traz as
+# versões certas, compatíveis com o kernel mainline. Ver docs/pesquisa.md §4.3.
 
 cp /etc/resolv.conf /rootfs/etc/resolv.conf
 
