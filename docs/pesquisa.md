@@ -161,9 +161,25 @@ Kernel instalado: `6.18.2-current-qcs6490` (`/usr/lib/modules/`, `/boot/vmlinuz`
 
 1. ✅ `debootstrap` do rootfs Ubuntu 26.04 "resolute" arm64 puro — feito, ver [scripts/01-build-rootfs.sh](../scripts/01-build-rootfs.sh).
 2. ✅ Kernel + firmware + fix de áudio instalados e verificados — feito, ver §4.1 e [scripts/02-install-kernel-firmware.sh](../scripts/02-install-kernel-firmware.sh).
-3. Montar partição GPT igual à real (§3.1: `config` 16MB + `efi` 1GB ESP + `rootfs` ext4), instalar **systemd-boot** (`bootctl install`) com entrada BLS usando o cmdline de referência do §3.1, **sem se preocupar com DTB** (vem do firmware).
-4. Empacotar como `.img`, comprimir `.img.xz`, gravar num NVMe via case USB/Thunderbolt e testar na Q6A (HDMI, rede, áudio, NVMe).
+3. ✅ Imagem montada e comprimida — feito, ver §4.2 e [scripts/03-assemble-image.sh](../scripts/03-assemble-image.sh).
+4. Gravar num NVMe via case USB/Thunderbolt e testar na Q6A (HDMI, rede, áudio, NVMe).
 5. Só depois disso validado: Fase 2 — instalar `ubuntu-desktop` + GNOME por cima do Server já funcional.
+
+## 4.2 Imagem montada (sem loop device)
+
+**Problema encontrado:** neste ambiente (sandboxed), criar nós de dispositivo de partição num loop device falha de forma inconsistente — tanto `-P` + `partprobe`/`partx` (silenciosamente não recriam os nós) quanto múltiplos loop devices simultâneos via `--offset`/`--sizelimit` (o 3º attach falha com "No such file or directory", mesmo com `--privileged`). Provável restrição do próprio sandbox do ambiente, não do kernel.
+
+**Solução:** eliminar loop device do processo de montagem por completo:
+- `sgdisk` particiona o arquivo `.img` bruto diretamente (não precisa de loop device pra isso).
+- Partição `rootfs` (ext4): `mkfs.ext4 -d output/rootfs -U <uuid>` — popula o filesystem direto do diretório, sem montar nada.
+- Partições `config`/`efi` (FAT16/32): `mtools` (`mcopy`) escreve os arquivos direto na imagem da partição, sem montar nada.
+- Cada partição vira um arquivo separado, depois `dd ... seek=<offset/1MiB> conv=notrunc` encaixa cada uma no lugar certo dentro da imagem final (todos os offsets caem em múltiplos exatos de 1MiB, graças ao alinhamento padrão do `sgdisk` + nossos tamanhos redondos).
+- UUIDs (rootfs ext4 e volume ID das FAT) são pré-gerados (`uuidgen`/aleatório) *antes* de criar os filesystems, pra poderem ser usados tanto no `/etc/fstab` quanto na entrada BLS do systemd-boot sem depender de montar nada primeiro.
+- O binário do systemd-boot (`systemd-bootaa64.efi`) e o conteúdo da ESP (`EFI/BOOT/`, `EFI/systemd/`, `loader/`, kernel+initrd) são montados como um diretório comum antes de virar imagem FAT — sem precisar rodar `bootctl install` (que exigiria uma ESP de verdade montada); construímos a estrutura manualmente, replicando exatamente o que vimos no hardware real (§3.1).
+
+Verificado montando cada partição (uma de cada vez, via loop, só para checagem) na imagem final: `/etc/os-release` = Ubuntu 26.04 Resolute, `/etc/fstab` com os UUIDs certos, kernel `6.18.2-current-qcs6490`, symlink de áudio resolvendo, firmware da Q6A no lugar, e a ESP com a estrutura idêntica à do hardware real (`EFI/BOOT/BOOTAA64.EFI`, `loader/entries/ubuntu-*.conf`, `ubuntu/<kver>/{vmlinuz,initrd.img}`).
+
+Resultado: [`output/radxa-dragon-q6a_resolute_server_dev.img.xz`](../output/) — 8GB raw → **1,71GB comprimido**.
 
 ## Fontes consultadas
 
