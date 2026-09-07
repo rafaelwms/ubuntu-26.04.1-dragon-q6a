@@ -246,6 +246,12 @@ Sem erro nenhum. `/dev/dri/card1` + `renderD128` presentes — a GPU tem node de
 
 Reconectamos por Wi-Fi + SSH sem problema (perfil salvo do NetworkManager reconectou sozinho no boot), Bluetooth continua ativo. **Fase 1 (Server) está sólida e completa.**
 
+## 4.9 Chave SSH de desenvolvimento (⚠️ remover antes da imagem definitiva)
+
+Toda regravação do SSD perde a autorização da chave SSH (ela só era aplicada ao sistema rodando via `ssh-copy-id`, nunca ficava dentro da imagem) — repetir isso a cada ciclo de build+flash+teste ficou chato. Adicionado [scripts/02e-add-dev-sshkey.sh](../scripts/02e-add-dev-sshkey.sh), que autoriza a chave deste desktop (`~/.ssh/id_ed25519_q6a.pub`) direto no rootfs, de fábrica.
+
+**Isso é só para esta fase de desenvolvimento.** Antes de gerar a imagem "Server" definitiva — e obrigatoriamente antes de migrar pra Fase 2 (Desktop) — rodar [scripts/02f-remove-dev-sshkey.sh](../scripts/02f-remove-dev-sshkey.sh) pra tirar essa chave e refazer a montagem (`03-assemble-image.sh`) sem ela. Combinado com o usuário.
+
 ## 5. Próximos passos (Fase 1 — Server)
 
 1. ✅ `debootstrap` do rootfs Ubuntu 26.04 "resolute" arm64 puro — [scripts/01-build-rootfs.sh](../scripts/01-build-rootfs.sh).
