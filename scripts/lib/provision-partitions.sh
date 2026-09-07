@@ -76,7 +76,7 @@ cp "/rootfs-src/boot/initrd.img-${KVER}" "$ESP/ubuntu/$KVER/initrd.img-${KVER}"
 cat > "$ESP/loader/entries/ubuntu-${KVER}.conf" <<EOF
 title      Ubuntu 26.04 LTS (Resolute Raccoon)
 version    ${KVER}
-options    root=UUID=${ROOTFS_UUID} rw quiet loglevel=0 console=ttyMSM0,115200n8 console=tty1 consoleblank=0 coherent_pool=2M irqchip.gicv3_pseudo_nmi=0
+options    root=UUID=${ROOTFS_UUID} rw console=ttyMSM0,115200n8 console=tty1 consoleblank=0 coherent_pool=2M irqchip.gicv3_pseudo_nmi=0
 linux      /ubuntu/${KVER}/vmlinuz-${KVER}
 initrd     /ubuntu/${KVER}/initrd.img-${KVER}
 EOF

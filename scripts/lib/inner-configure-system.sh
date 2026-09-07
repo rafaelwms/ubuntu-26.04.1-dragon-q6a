@@ -38,4 +38,16 @@ network:
 EOF
 chmod 600 /etc/netplan/01-network-manager-all.yaml
 
+# journald ecoa mensagens do kernel/serviços no console por um caminho separado do
+# console_loglevel do kernel (por isso quiet/loglevel= no cmdline não silenciava
+# mensagens como "aic_load_fw ... failed" ou "qcom-apm gprsvc: CMD timeout" -- elas
+# são inofensivas mas indistinguíveis de erro real pra quem está logando). Isso NÃO
+# afeta as mensagens "[ OK ] Started ..." do próprio systemd (caminho diferente) nem
+# o registro completo no log (journalctl -k continua mostrando tudo).
+mkdir -p /etc/systemd/journald.conf.d
+cat > /etc/systemd/journald.conf.d/10-console-level.conf <<'EOF'
+[Journal]
+MaxLevelConsole=crit
+EOF
+
 echo "Usuário: $USERNAME / Senha: $PASSWORD (com sudo). Hostname: $HOSTNAME. SSH e NetworkManager habilitados."
