@@ -1,0 +1,12 @@
+# Imagens finais e artefatos grandes de build (distribuídos via GitHub Releases, não no git)
+*.img
+*.img.xz
+*.img.xz.*
+output/
+rootfs/
+armbian-build/
+*.tar
+*.tar.*
+
+# Manter os .deb do kernel pré-compilado (pequenos, ~59MB) versionados por enquanto:
+!artifacts/**/*.deb
