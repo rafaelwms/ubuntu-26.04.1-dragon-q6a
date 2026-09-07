@@ -268,6 +268,12 @@ Toda regravação do SSD perde a autorização da chave SSH (ela só era aplicad
 
 **Isso é só para esta fase de desenvolvimento.** Antes de gerar a imagem "Server" definitiva — e obrigatoriamente antes de migrar pra Fase 2 (Desktop) — rodar [scripts/02f-remove-dev-sshkey.sh](../scripts/02f-remove-dev-sshkey.sh) pra tirar essa chave e refazer a montagem (`03-assemble-image.sh`) sem ela. Combinado com o usuário.
 
+## 4.10 Boot silencioso (`quiet`)
+
+Deixamos o boot verboso de propósito enquanto validávamos a imagem — mas isso não é a experiência final aceitável. As mensagens que apareciam no login (`aic_load_fw ... failed with error -1`, `CAUTION: USING PERMISSIVE CUSTOM REGULATORY RULES`, `qcom-apm gprsvc: CMD timeout`) são todas inofensivas (já confirmamos: WiFi, Bluetooth e áudio funcionam apesar delas), mas não devem aparecer numa imagem "pronta".
+
+Adicionado `quiet loglevel=0` na linha de boot ([scripts/lib/provision-partitions.sh](../scripts/lib/provision-partitions.sh)) e removido o `earlycon` (só era útil pra depuração bem cedo no boot). Isso silencia o console — as mensagens continuam 100% disponíveis via `journalctl -b` / `dmesg` depois de logar, só não aparecem mais na tela por padrão.
+
 ## 5. Próximos passos (Fase 1 — Server)
 
 1. ✅ `debootstrap` do rootfs Ubuntu 26.04 "resolute" arm64 puro — [scripts/01-build-rootfs.sh](../scripts/01-build-rootfs.sh).
