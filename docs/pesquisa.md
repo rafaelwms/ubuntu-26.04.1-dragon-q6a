@@ -169,7 +169,18 @@ Dois problemas apareceram:
 
 Ironia: meu passo de "reforçar com o firmware verificado" (§3.2/§4.1) fazia exatamente o oposto do que devia — sobrescrevia a versão certa (que o `apt install linux-firmware` já tinha instalado, como `.zst`) com a versão vendor errada (sem `.zst`, sobrepondo por nome de arquivo diferente, por isso os dois coexistiam sem conflito de pacote).
 
-**Correção:** removido o passo de reaplicar `artifacts/firmware-qcs6490-dragon-q6a/` por cima em [scripts/lib/provision-kernel-firmware.sh](../scripts/lib/provision-kernel-firmware.sh) e em [scripts/02-install-kernel-firmware.sh](../scripts/02-install-kernel-firmware.sh) — confiamos 100% no `linux-firmware` do Ubuntu pro ADSP/CDSP/topologia de áudio. **Lição geral:** firmware vendor combina com kernel vendor; firmware mainline combina com kernel mainline — não dá pra misturar. Mantemos `artifacts/firmware-qcs6490-dragon-q6a/` no repo só como referência (útil se um dia testarmos o kernel vendor/downstream, ver §3).
+**Correção aplicada:** removido o passo de reaplicar `artifacts/firmware-qcs6490-dragon-q6a/` por cima em [scripts/lib/provision-kernel-firmware.sh](../scripts/lib/provision-kernel-firmware.sh) e em [scripts/02-install-kernel-firmware.sh](../scripts/02-install-kernel-firmware.sh), reconstruída a imagem e regravada no SSD.
+
+### ⚠️ Atualização: o teste real mostrou que essa hipótese estava ERRADA
+
+Depois de regravar e testar de novo na placa, **o mesmo `qcom-apm gprsvc: CMD timeout for [1001021] opcode` apareceu de novo**, no mesmíssimo instante do boot (~8.16s). Comparei byte a byte o `adsp.mbn` que eu tinha extraído do vendor com o `adsp.mbn.zst` do pacote `linux-firmware` (`cmp`/`md5sum`) — **são idênticos** (`c2af746280ea70f8407f4d813389ae5e` nos dois). Ou seja: nunca houve incompatibilidade de firmware nesse arquivo — minha hipótese (baseada em buscas na web que, percebi depois, ficaram repetindo a mesma narrativa da PR do Armbian sem trazer nada novo) estava errada.
+
+**Causa real ainda não identificada.** O que sabemos até agora:
+- Não trava o boot — o sistema sobe normal, HDMI/login funcionam.
+- É bem provável que seja um problema genuíno (ainda em aberto) do driver `q6apm` mainline nessa combinação específica de placa+firmware+kernel 6.18 — a comunidade Armbian/Radxa parece estar iterando ativamente nisso ([fórum "HDMI Audio support Fix"](https://forum.armbian.com/topic/57121-latest-armbian-build-hdmi-audio-support-fix/) menciona múltiplos ajustes distintos: UCM, módulo de codec, e até um script rodando `amixer` manualmente pra configurar o roteamento DISPLAY_PORT_RX_0 — nenhum bate exatamente com o nosso sintoma).
+- Só vamos conseguir depurar isso de verdade com acesso interativo (SSH) na placa — `dmesg` completo, `cat /sys/class/remoteproc/remoteproc*/state`, `aplay -l`, etc. — em vez de regravar o SSD a cada palpite.
+
+**Prioridade agora:** deixar a rede (Wi-Fi + SSH) funcionando primeiro — é infraestrutura que vamos precisar de qualquer forma pra depurar tudo o resto com mais velocidade. Áudio fica como item em aberto, não bloqueante pra Fase 1.
 
 ## 5. Próximos passos (Fase 1 — Server)
 

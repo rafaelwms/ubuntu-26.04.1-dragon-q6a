@@ -26,4 +26,16 @@ apt-get update
 apt-get install -y openssh-server
 systemctl enable ssh
 
-echo "Usuário: $USERNAME / Senha: $PASSWORD (com sudo). Hostname: $HOSTNAME. SSH habilitado."
+# rede: NetworkManager (dá pra usar nmcli pra entrar em qualquer Wi-Fi
+# interativamente -- útil enquanto estamos testando/depurando na bancada)
+apt-get install -y network-manager
+systemctl enable NetworkManager
+mkdir -p /etc/netplan
+cat > /etc/netplan/01-network-manager-all.yaml <<'EOF'
+network:
+  version: 2
+  renderer: NetworkManager
+EOF
+chmod 600 /etc/netplan/01-network-manager-all.yaml
+
+echo "Usuário: $USERNAME / Senha: $PASSWORD (com sudo). Hostname: $HOSTNAME. SSH e NetworkManager habilitados."
