@@ -274,6 +274,18 @@ Deixamos o boot verboso de propósito enquanto validávamos a imagem — mas iss
 
 Adicionado `quiet loglevel=0` na linha de boot ([scripts/lib/provision-partitions.sh](../scripts/lib/provision-partitions.sh)) e removido o `earlycon` (só era útil pra depuração bem cedo no boot). Isso silencia o console — as mensagens continuam 100% disponíveis via `journalctl -b` / `dmesg` depois de logar, só não aparecem mais na tela por padrão.
 
+## 4.11 Fórum da Radxa: confirma que kernel 6.18 é a escolha certa (não é placebo)
+
+Pesquisamos no [fórum oficial da Radxa, categoria Dragon Q6A](https://forum.radxa.com/c/dragon/q6a/71) (cuidado pra não confundir com Q8A, placa diferente) atrás de validação externa sobre a escolha do kernel 6.18 e pistas sobre o `CMD timeout`.
+
+**Kernel 7.0 quebra o HDMI nessa placa exata — confirmado, sem fix.** Duas threads documentam isso: ["Latest Q6A update to Linux 7.0 - no HDMI"](https://forum.radxa.com/t/latest-q6a-update-to-linux-7-0-no-hdmi/31288) e ["Linux 7.0 HDMI not working"](https://forum.radxa.com/t/linux-7-0-hdmi-not-working/31304). A tela fica preta assim que o driver MSM DisplayPort assume, com `[drm:msm_dp_aux_isr] *ERROR* Unexpected DP AUX IRQ 0x00000008 when not busy`. **Não é problema de device-tree** — usar o DTB do 6.18 com o kernel 7.0 reproduz o mesmo travamento. Sem fix conhecido até a data da thread.
+
+**A própria Radxa recomenda oficialmente o kernel 6.18, não o 7.x.** Na thread ["Radxa Dragon Q6A firmware snapshot"](https://forum.radxa.com/t/radxa-dragon-q6a-firmware-snapshot/28886), um desenvolvedor da Radxa (`strongtz`) confirma a configuração estável recomendada: firmware 260120, RadxaOS rsdk-r1+, **"Kernel: 6.18 preferred for full feature support"**. Ou seja: a escolha que fizemos no §3 não foi um atalho nem um placebo — é exatamente o que o fabricante da placa recomenda oficialmente, pelo mesmo motivo que descobrimos por conta própria (7.0 quebra HDMI). O branch `edge` (7.2) do Armbian pode ou não ter esse bug corrigido — não testamos, e a comunidade também não confirma pro Q6A especificamente ainda.
+
+**Pista nova e promissora pro `CMD timeout`:** a thread ["LPAIF/MI2S registers locked by Qualcomm TrustZone"](https://forum.radxa.com/t/dragon-q6a-lpaif-mi2s-registers-locked-by-qualcomm-trustzone-no-direct-low-latency-audio-access-possible/30592) revela que existe uma tela de **setup de BIOS/UEFI** nessa placa com opções **"Hypervisor Override"** e **"ADSP firmware preload"** (desabilitada, permite acesso direto do CPU ao hardware de áudio). Isso não confirma diretamente o `gprsvc CMD timeout` (a thread não menciona isso especificamente), mas sugere uma hipótese nova: se o firmware do ADSP for pré-carregado pelo próprio firmware/BIOS antes do Linux iniciar, nosso kernel pode estar tentando falar um "dialeto" de GPR que a versão pré-carregada não entende totalmente nesse opcode específico. Vale investigar entrar nesse menu de BIOS (ainda não sabemos a tecla de atalho) e testar com "ADSP firmware preload" desabilitado.
+
+**Não achamos nada no fórum sobre os avisos `aic_load_fw ... failed with error -1` / `CAUTION: PERMISSIVE REGULATORY`** — parecem ser só verbosidade normal do driver aic8800 mesmo, sem relato de problema real associado.
+
 ## 5. Próximos passos (Fase 1 — Server)
 
 1. ✅ `debootstrap` do rootfs Ubuntu 26.04 "resolute" arm64 puro — [scripts/01-build-rootfs.sh](../scripts/01-build-rootfs.sh).
