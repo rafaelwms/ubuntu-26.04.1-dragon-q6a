@@ -232,6 +232,20 @@ O board config do Armbian pra essa placa também oferece um branch **`edge` = ke
 
 **Recomendação:** seguir no 6.18.2 pra fechar a Fase 2 (Desktop/GNOME) com a base já validada (HDMI, áudio, Wi-Fi/BT, systemd-boot — tudo testado nesse kernel). Migrar pra `edge` (7.2) depois é reproduzível: é só trocar `BRANCH=current` por `BRANCH=edge` no `./compile.sh kernel BOARD=radxa-dragon-q6a` e refazer os passos 02/02b/02c/03 — mas cada peça (firmware, UCM, driver aic8800 via DKMS) precisaria ser revalidada nesse kernel novo, já que a versão exata do kernel importa pra compatibilidade de ABI (foi exatamente esse tipo de mismatch, entre firmware e driver, que nos mordeu em §4.1/§4.3 — só que lá era firmware vendor vs. kernel mainline; trocar de branch dentro do mainline é mais seguro, mas não é zero-risco).
 
+## 4.8 GPU com aceleração real confirmada
+
+Depois do fix do initramfs (§ commit "Inclui firmware da GPU/DPU no initramfs"), regravamos e testamos de novo. `dmesg` confirma:
+
+```
+[drm:adreno_request_fw] loaded qcom/a660_sqe.fw from new location
+[drm:adreno_request_fw] loaded qcom/a660_gmu.bin from new location
+msm_dpu ... [drm] fb0: msmdrmfb frame buffer device
+```
+
+Sem erro nenhum. `/dev/dri/card1` + `renderD128` presentes — a GPU tem node de renderização de verdade disponível (Mesa/Vulkan vão conseguir usar). Antes desse fix, é bem provável que estivéssemos rodando num framebuffer simples/genérico, sem aceleração real — o que teria sido um problema sério pra Fase 2 (GNOME/Mutter dependem de aceleração de GPU pra compositing).
+
+Reconectamos por Wi-Fi + SSH sem problema (perfil salvo do NetworkManager reconectou sozinho no boot), Bluetooth continua ativo. **Fase 1 (Server) está sólida e completa.**
+
 ## 5. Próximos passos (Fase 1 — Server)
 
 1. ✅ `debootstrap` do rootfs Ubuntu 26.04 "resolute" arm64 puro — [scripts/01-build-rootfs.sh](../scripts/01-build-rootfs.sh).
