@@ -182,13 +182,45 @@ Depois de regravar e testar de novo na placa, **o mesmo `qcom-apm gprsvc: CMD ti
 
 **Prioridade agora:** deixar a rede (Wi-Fi + SSH) funcionando primeiro — é infraestrutura que vamos precisar de qualquer forma pra depurar tudo o resto com mais velocidade. Áudio fica como item em aberto, não bloqueante pra Fase 1.
 
+## 4.4 Áudio funcionando de ponta a ponta (confirmado audível) 🎉
+
+Com SSH funcionando (§4.5), a investigação foi rápida. `aplay -l`/`/proc/asound/cards` já mostravam o card completo (`QCS6490-Radxa-Dragon-Q6A`, com PCMs `MultiMedia1`/`MultiMedia2`), e `remoteproc0`/`remoteproc1` (adsp/cdsp) reportavam `running` — ou seja, **o `CMD timeout` do gprsvc é mesmo só um aviso não-fatal**, não impede o DSP de subir.
+
+Testando `speaker-test -D hw:0,0` direto (bypassando UCM) deu `Playback open error: -22`. Habilitando manualmente os mixers de roteamento (`RX_CODEC_DMA_RX_0 Audio Mixer MultiMedia1`, `HPHL/HPHR Switch`) o open funcionava mas o *write* falhava (`-5, Input/output error`), e o `dmesg` explicava exatamente por quê:
+
+```
+MultiMedia1 Playback: ASoC: no backend DAIs enabled for MultiMedia1 Playback,
+possibly missing ALSA mixer-based routing or UCM profile
+```
+
+A resposta certa não é setar mixers na unha — é usar o **UCM** (que já corrigimos em §3.2/§4.1) de verdade, via `alsaucm`, numa única sessão (senão o estado não persiste entre chamadas):
+
+```bash
+alsaucm -c QCS6490-Radxa-Dragon-Q6A set _verb HiFi set _enadev Headphones
+# ou: set _enadev HDMI
+```
+
+O `HiFi.conf` do perfil (`/usr/share/alsa/ucm2/Qualcomm/qcs6490/QCS6490-Radxa-Dragon-Q6A/HiFi.conf`) faz a sequência completa: os `cset` do verbo + do dispositivo, **mais** os `Include` dos codecs (`wcd938x/HeadphoneEnableSeq.conf`, `qcom-lpass/rx-macro/HeadphoneEnableSeq.conf`) que fazem o power-up real do caminho analógico — é isso que faltava nos testes manuais.
+
+Com isso ativado, `speaker-test -D hw:0,0` (fone P2) e `speaker-test -D hw:0,1` (HDMI/DisplayPort) rodaram sem nenhum erro, e o som saiu audível no fone de verdade (confirmado ao vivo com fone conectado).
+
+**Nota pra Fase 2 (Desktop):** isso funcionou via ativação manual do UCM. Num desktop de verdade, quem faz essa ativação automaticamente quando um app pede pra tocar som é o **PipeWire + WirePlumber** (o backend ALSA/UCM do WirePlumber lê exatamente esse `HiFi.conf`). Não precisamos fazer nada extra além de instalar `pipewire`/`wireplumber` normalmente na Fase 2 — o mesmo UCM que validamos aqui deve funcionar automaticamente lá.
+
+## 4.5 SSH funcionando — muito mais rápido a partir daqui
+
+Conseguimos rede via **dongle USB Wi-Fi AIC8800** (o Wi-Fi onboard/WCN6750 não está completo no device-tree mainline que usamos, ver §4.3) + driver DKMS (§ anterior). Com IP na mão, geramos uma chave SSH dedicada (`~/.ssh/id_ed25519_q6a`, alias `q6a` no `~/.ssh/config` do desktop) — toda a investigação de áudio acima foi feita via SSH direto do terminal, sem precisar mais de teclado+captura de vídeo pra cada comando.
+
 ## 5. Próximos passos (Fase 1 — Server)
 
-1. ✅ `debootstrap` do rootfs Ubuntu 26.04 "resolute" arm64 puro — feito, ver [scripts/01-build-rootfs.sh](../scripts/01-build-rootfs.sh).
-2. ✅ Kernel + firmware + fix de áudio instalados e verificados — feito, ver §4.1 e [scripts/02-install-kernel-firmware.sh](../scripts/02-install-kernel-firmware.sh).
-3. ✅ Imagem montada e comprimida — feito, ver §4.2 e [scripts/03-assemble-image.sh](../scripts/03-assemble-image.sh).
-4. Gravar num NVMe via case USB/Thunderbolt e testar na Q6A (HDMI, rede, áudio, NVMe).
-5. Só depois disso validado: Fase 2 — instalar `ubuntu-desktop` + GNOME por cima do Server já funcional.
+1. ✅ `debootstrap` do rootfs Ubuntu 26.04 "resolute" arm64 puro — [scripts/01-build-rootfs.sh](../scripts/01-build-rootfs.sh).
+2. ✅ Kernel + firmware + fix de áudio instalados e verificados — §4.1, [scripts/02-install-kernel-firmware.sh](../scripts/02-install-kernel-firmware.sh).
+3. ✅ Imagem montada e comprimida (sem loop device) — §4.2, [scripts/03-assemble-image.sh](../scripts/03-assemble-image.sh).
+4. ✅ Gravado num NVMe de testes e testado na Q6A de verdade: **boot ok, HDMI ok, login ok, Wi-Fi (dongle USB AIC8800) + SSH ok, áudio ok (fone e HDMI, confirmado audível)** — §4.3, §4.4, §4.5.
+5. Em aberto, não bloqueante:
+   - WiFi onboard (WCN6750) não funciona — precisa de dongle USB por enquanto (§4.3). Investigar depois se vale a pena tentar completar o device-tree, ou se seguimos recomendando dongle USB (como o próprio Armbian faz).
+   - Áudio funciona via ativação manual do UCM; falta confirmar que fica automático quando instalarmos PipeWire na Fase 2 (deve funcionar, mesmo UCM).
+   - Endurecer o processo de update (a causa raiz do "HDMI quebra depois do apt upgrade" da imagem original, §2.1, ainda não foi diretamente testada nesta imagem nossa — evitar `apt upgrade` direto no kernel/firmware por enquanto).
+6. Próximo grande passo: **Fase 2** — instalar `ubuntu-desktop-minimal` + GNOME por cima do Server já validado.
 
 ## 4.2 Imagem montada (sem loop device)
 
