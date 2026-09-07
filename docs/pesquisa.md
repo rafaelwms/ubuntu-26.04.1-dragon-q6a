@@ -140,14 +140,30 @@ Isso baixou (via cache remoto do Armbian, `ghcr.io/armbian/os/kernel-qcs6490-cur
 - `linux-headers-current-qcs6490_*_arm64.deb`
 - `linux-libc-dev-current-qcs6490_*_arm64.deb`
 
+## 4.1 Kernel + firmware + fix de áudio instalados no rootfs (verificado)
+
+Rodando [scripts/02-install-kernel-firmware.sh](../scripts/02-install-kernel-firmware.sh) (mesmo esquema Docker + `qemu-aarch64-static` do script anterior): instalamos `linux-image`/`linux-dtb` current-qcs6490, o `linux-firmware` completo do Ubuntu, sobrepusemos com os blobs verificados da Q6A (§3.2), e instalamos o `alsa-ucm-conf` da Radxa.
+
+Duas pedras no caminho, ambas resolvidas:
+- O rootfs mínimo não tinha `wget`/`ca-certificates` — adicionado ao script.
+- `alsa-ucm-conf` ficou "half-installed" por faltar `libasound2t64` (rootfs mínimo não tem libs de ALSA) — resolvido com `apt-get install -f`.
+
+**Verificação final — o symlink que estava quebrado na Kali agora resolve de verdade:**
+
+```
+usr/share/alsa/ucm2/conf.d/qcs6490/QCS6490-Radxa-Dragon-Q6A.conf
+  -> ../../Qualcomm/qcs6490/QCS6490-Radxa-Dragon-Q6A/QCS6490-Radxa-Dragon-Q6A.conf   ✅ existe
+```
+
+Kernel instalado: `6.18.2-current-qcs6490` (`/usr/lib/modules/`, `/boot/vmlinuz` e `/boot/initrd.img` com os symlinks certos, gerados automaticamente pelo `postinst` do pacote). Tamanho do rootfs agora: ~2,3GB (a maior parte é o `linux-firmware` completo, ~740MB).
+
 ## 5. Próximos passos (Fase 1 — Server)
 
 1. ✅ `debootstrap` do rootfs Ubuntu 26.04 "resolute" arm64 puro — feito, ver [scripts/01-build-rootfs.sh](../scripts/01-build-rootfs.sh).
-2. `dpkg -i` dos `.deb` do kernel Armbian (`linux-image`/`linux-dtb`, ver §4) dentro desse rootfs.
-3. Instalar firmware: os blobs específicos da Q6A já extraídos em [`artifacts/firmware-qcs6490-dragon-q6a/`](../artifacts/firmware-qcs6490-dragon-q6a/) (§3.2) + `linux-firmware` do Ubuntu pro resto + o `.deb` do `alsa-ucm-conf` da Radxa (§2.2/§3.2).
-4. Montar partição GPT igual à real (§3.1: `config` 16MB + `efi` 1GB ESP + `rootfs` ext4), instalar **systemd-boot** (`bootctl install`) com entrada BLS usando o cmdline de referência do §3.1, **sem se preocupar com DTB** (vem do firmware).
-5. Empacotar como `.img`, comprimir `.img.xz`, gravar num NVMe via case USB/Thunderbolt e testar na Q6A (HDMI, rede, áudio, NVMe).
-6. Só depois disso validado: Fase 2 — instalar `ubuntu-desktop` + GNOME por cima do Server já funcional.
+2. ✅ Kernel + firmware + fix de áudio instalados e verificados — feito, ver §4.1 e [scripts/02-install-kernel-firmware.sh](../scripts/02-install-kernel-firmware.sh).
+3. Montar partição GPT igual à real (§3.1: `config` 16MB + `efi` 1GB ESP + `rootfs` ext4), instalar **systemd-boot** (`bootctl install`) com entrada BLS usando o cmdline de referência do §3.1, **sem se preocupar com DTB** (vem do firmware).
+4. Empacotar como `.img`, comprimir `.img.xz`, gravar num NVMe via case USB/Thunderbolt e testar na Q6A (HDMI, rede, áudio, NVMe).
+5. Só depois disso validado: Fase 2 — instalar `ubuntu-desktop` + GNOME por cima do Server já funcional.
 
 ## Fontes consultadas
 
