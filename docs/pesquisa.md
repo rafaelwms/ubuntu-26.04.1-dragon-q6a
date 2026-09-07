@@ -206,7 +206,23 @@ Com isso ativado, `speaker-test -D hw:0,0` (fone P2) e `speaker-test -D hw:0,1` 
 
 **Nota pra Fase 2 (Desktop):** isso funcionou via ativação manual do UCM. Num desktop de verdade, quem faz essa ativação automaticamente quando um app pede pra tocar som é o **PipeWire + WirePlumber** (o backend ALSA/UCM do WirePlumber lê exatamente esse `HiFi.conf`). Não precisamos fazer nada extra além de instalar `pipewire`/`wireplumber` normalmente na Fase 2 — o mesmo UCM que validamos aqui deve funcionar automaticamente lá.
 
+## 4.6b ⚠️ CORREÇÃO: o WiFi onboard funciona nativamente — não precisa de dongle
+
+**A conclusão do §4.6 abaixo estava errada.** Testando sem nenhum dongle USB conectado, o Wi-Fi continuou funcionando normalmente (o usuário reparou, eu tinha assumido — errado — que só funcionava com o dongle plugado). Confirmado via SSH:
+
+```
+wlan0 → /sys/devices/.../8c00000.usb/xhci-hcd.1.auto/usb1/1-1/1-1.4
+```
+
+Esse caminho bate **exatamente** com o nó `wifi@4` do device-tree (porta 4 do hub USB interno `hub@1`, `compatible="usb1a40,0101"`) que identificamos no §4.6 original — ou seja, existe sim um **módulo Wi-Fi+BT onboard de verdade** nessa placa (provavelmente dentro do Quectel FCU760K), ligado via USB interno, com um chip da família AIC8800 por dentro. **O mesmo driver `aic8800-usb-dkms` que instalamos (achando que era só pro dongle de teste) já serve pro módulo onboard.** Não precisa de dongle USB nenhum.
+
+(Um susto à parte: depois dessa troca, o desktop não conseguia mais pingar a placa por um tempo — era só uma entrada ARP desatualizada no cache do desktop, sem relação nenhuma com a placa; a Q6A conseguia pingar o próprio roteador o tempo todo. `ip neigh flush` resolveu.)
+
+Isso simplifica a Fase 2: nenhum dongle externo é necessário, nem pra Wi-Fi nem pra Bluetooth.
+
 ## 4.6 WiFi onboard (WCN6750) — por que não vale a pena perseguir, e Bluetooth (resolvido)
+
+**Nota: a premissa desta seção (de que era necessário um dongle externo) estava errada — ver correção em §4.6b acima. O restante da investigação abaixo (WCN6750 inviável, AIC8800 é o chip real, Bluetooth funciona) continua válido.**
 
 Investigando mais a fundo pra decidir entre consertar o WiFi onboard ou aceitar o dongle USB:
 
@@ -257,11 +273,12 @@ Toda regravação do SSD perde a autorização da chave SSH (ela só era aplicad
 1. ✅ `debootstrap` do rootfs Ubuntu 26.04 "resolute" arm64 puro — [scripts/01-build-rootfs.sh](../scripts/01-build-rootfs.sh).
 2. ✅ Kernel + firmware + fix de áudio instalados e verificados — §4.1, [scripts/02-install-kernel-firmware.sh](../scripts/02-install-kernel-firmware.sh).
 3. ✅ Imagem montada e comprimida (sem loop device) — §4.2, [scripts/03-assemble-image.sh](../scripts/03-assemble-image.sh).
-4. ✅ Gravado num NVMe de testes e testado na Q6A de verdade: **boot ok, HDMI ok, login ok, Wi-Fi (dongle USB AIC8800) + SSH ok, áudio ok (fone e HDMI, confirmado audível)** — §4.3, §4.4, §4.5.
+4. ✅ Gravado num NVMe de testes e testado na Q6A de verdade: **boot ok, HDMI com GPU acelerada ok, login ok, Wi-Fi+Bluetooth onboard (nativo, sem dongle — §4.6b) + SSH ok, áudio ok (fone e HDMI, confirmado audível)** — §4.3–§4.8.
 5. Em aberto, não bloqueante:
-   - WiFi onboard (WCN6750) não funciona — precisa de dongle USB por enquanto (§4.3). Investigar depois se vale a pena tentar completar o device-tree, ou se seguimos recomendando dongle USB (como o próprio Armbian faz).
    - Áudio funciona via ativação manual do UCM; falta confirmar que fica automático quando instalarmos PipeWire na Fase 2 (deve funcionar, mesmo UCM).
    - Endurecer o processo de update (a causa raiz do "HDMI quebra depois do apt upgrade" da imagem original, §2.1, ainda não foi diretamente testada nesta imagem nossa — evitar `apt upgrade` direto no kernel/firmware por enquanto).
+   - Chave SSH de dev embutida na imagem (§4.9) — remover antes de qualquer imagem que saia da bancada.
+   - Ferramentas de build (gcc/dkms/headers, usadas só pra compilar o driver aic8800) ainda ocupam espaço na imagem — dá pra enxugar.
 6. Próximo grande passo: **Fase 2** — instalar `ubuntu-desktop-minimal` + GNOME por cima do Server já validado.
 
 ## 4.2 Imagem montada (sem loop device)
