@@ -286,6 +286,12 @@ Pesquisamos no [fórum oficial da Radxa, categoria Dragon Q6A](https://forum.rad
 
 **Não achamos nada no fórum sobre os avisos `aic_load_fw ... failed with error -1` / `CAUTION: PERMISSIVE REGULATORY`** — parecem ser só verbosidade normal do driver aic8800 mesmo, sem relato de problema real associado.
 
+## 6. Fase 2 — Desktop (GNOME)
+
+**Requisito do usuário:** instalação "limpa" — só o básico de sistema (GNOME Shell, GDM, Configurações, Arquivos), **sem** suíte de escritório nem apps extras. Pacote certo pra isso: `ubuntu-desktop-minimal` (não `ubuntu-desktop`, que traz LibreOffice/Thunderbird/jogos). O usuário adiciona o que precisar depois.
+
+Base: Server já validado (§4, checklist completo em §5) — boot, HDMI com GPU acelerada de verdade, Wi-Fi+Bluetooth onboard nativos, SSH, áudio, auto-resize de partição no primeiro boot.
+
 ## 5. Próximos passos (Fase 1 — Server)
 
 1. ✅ `debootstrap` do rootfs Ubuntu 26.04 "resolute" arm64 puro — [scripts/01-build-rootfs.sh](../scripts/01-build-rootfs.sh).
