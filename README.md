@@ -14,7 +14,7 @@ Veja [`docs/pesquisa.md`](docs/pesquisa.md) para o levantamento técnico complet
 
 - **Rootfs:** Ubuntu 26.04 "resolute" arm64 puro, via `debootstrap`.
 - **Kernel/DTB/firmware:** mainline (6.18, `radxa/kernel.git`) via [Armbian Build Framework](https://github.com/armbian/build) — que já resolve os bugs de HDMI e áudio desta placa (ver `docs/pesquisa.md` §2).
-- **Bootloader:** GRUB arm64 (UEFI) + DTB — não U-Boot raw.
+- **Bootloader:** `systemd-boot` (UEFI, Boot Loader Specification) — não GRUB, não U-Boot. DTB vem do firmware (ABL/UEFI), não do bootloader.
 - **NPU (Hexagon/QAIRT):** fora do escopo da Fase 1 (depende de kernel vendor + blobs proprietários).
 
 ## Estrutura

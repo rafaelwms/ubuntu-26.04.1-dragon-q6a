@@ -73,6 +73,58 @@ O Armbian mantém suporte ativo e mainline pra essa placa (maintainer: HeyMeco S
 
 **Trade-off aceito:** a NPU Hexagon (aceleração de IA, 12 TOPS) depende de blobs proprietários (QAIRT/FastRPC) que só têm suporte maduro no kernel vendor ~6.8, não no mainline 6.18. Fica de fora da Fase 1 (Server); revisitamos depois se for necessário.
 
+## 3.1 Correção de rota: o bootloader real é systemd-boot, não GRUB (confirmado no hardware)
+
+Inspecionamos ao vivo o SSD de testes (`nvme1n1`, no case USB/Thunderbolt) que tinha a instalação da **Kali** de vocês. Isso revelou o boot chain real usado de fato pela Radxa, e corrigiu uma suposição errada do §3 (que veio só da leitura do `qcs6490.conf` do Armbian, que usa GRUB por ser um framework genérico multi-placa):
+
+**Tabela de partições real (GPT):**
+
+| Partição | FS | Label | Tamanho | GUID de tipo |
+|---|---|---|---|---|
+| `nvme1n1p1` | FAT16 | `config` | 16MB | Linux filesystem (genérico) — é a área de config do `rsetup` (`config.txt`/`before.txt`/`after.txt`, ver [radxa-pkg/rsetup](https://github.com/radxa-pkg/rsetup)), não é essencial pro boot |
+| `nvme1n1p2` | FAT32 | `efi` | 1GB | **ESP real** (`c12a7328-f81f-11d2-ba4b-00a0c93ec93b`) |
+| `nvme1n1p3` | ext4 | `rootfs` | resto do disco | Linux filesystem |
+
+**Dentro da ESP:** não tem GRUB — é **systemd-boot** puro (Boot Loader Specification, type #1):
+
+```
+/EFI/BOOT/BOOTAA64.EFI              # fallback
+/EFI/systemd/systemd-bootaa64.efi   # o bootloader real
+/loader/loader.conf                 # "timeout 3"
+/loader/entries/RadxaOS-6.18.2-3-qcom.conf
+/RadxaOS/6.18.2-3-qcom/linux                       # kernel
+/RadxaOS/6.18.2-3-qcom/initrd.img-6.18.2-3-qcom    # initrd
+/RadxaOS/6.18.2-3-qcom/dtbo/*.dtbo.disabled        # overlays opcionais (câmeras, displays, PoE HAT...)
+```
+
+Entrada BLS real (gerada por `/usr/lib/kernel/install.d/90-loaderentry.install`, ou seja, é o `kernel-install` padrão do systemd — nada customizado):
+
+```
+title      Ubuntu 24.04.4 LTS
+version    6.18.2-3-qcom
+options    root=UUID=a03a5c05-3365-4811-a1dd-f1776983aa76 console=ttyMSM0,115200n8 quiet splash loglevel=4 rw earlycon consoleblank=0 console=tty1 coherent_pool=2M irqchip.gicv3_pseudo_nmi=0 cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory swapaccount=1 kasan=off
+linux      /RadxaOS/6.18.2-3-qcom/linux
+initrd     /RadxaOS/6.18.2-3-qcom/initrd.img-6.18.2-3-qcom
+```
+
+**Importante — não existe nenhum `.dtb` na ESP nem linha `devicetree=` na entrada.** O firmware (ABL/UEFI da Qualcomm) entrega o device tree direto pro kernel via tabela de configuração EFI (`EFI_DTB_TABLE_GUID`) — o mesmo mecanismo que permite essa placa rodar Windows 11 IoT. O stub EFI do kernel arm64 (`drivers/firmware/efi/libstub`) já sabe usar isso automaticamente. **Ou seja: não precisamos gerenciar DTB no bootloader**, só garantir que o kernel tenha `CONFIG_EFI` + suporte a essa placa (`linux-dtb-*` do Armbian só seria necessário se fôssemos usar GRUB; para systemd-boot/BLS puro nem precisamos instalá-lo).
+
+**Decisão atualizada:** vamos usar `bootctl install` (systemd-boot) + o `kernel-install`/BLS padrão do Ubuntu em vez de GRUB — é mais simples, é o que já funciona de verdade nessa placa, e o Ubuntu 26.04 já traz esse mecanismo de fábrica (basta os pacotes `systemd-boot` + hooks de `/etc/kernel/install.d/` estarem presentes).
+
+## 3.2 Causa raiz do áudio confirmada ao vivo (não é só teoria)
+
+Com a partição rootfs da Kali montada (somente leitura), fomos direto no ponto: `/usr/share/alsa/ucm2/conf.d/qcs6490/QCS6490-Radxa-Dragon-Q6A.conf` é um **symlink quebrado**:
+
+```
+QCS6490-Radxa-Dragon-Q6A.conf -> ../../Qualcomm/qcs6490/QCS6490-Radxa-Dragon-Q6A/QCS6490-Radxa-Dragon-Q6A.conf
+```
+
+O diretório de destino (`Qualcomm/qcs6490/QCS6490-Radxa-Dragon-Q6A/`, que teria o `HiFi.conf` e a definição de PCM) **não existe** no `alsa-ucm-conf 1.2.15.3-1` (versão stock instalada). Bate 100% com a descrição do fix do Armbian — não é só teoria, é o bug batendo na nossa frente. Vamos instalar o backport da Radxa (`alsa-ucm-conf 1.2.16.1-radxa-1`, ver §2.2) em vez do pacote stock do Ubuntu.
+
+Também confirmamos e copiamos os blobs de firmware reais direto dessa instalação (fonte mais confiável que tentar montar a partir do linux-firmware.git puro) para [`artifacts/firmware-qcs6490-dragon-q6a/`](../artifacts/firmware-qcs6490-dragon-q6a/): `adsp.mbn`, `cdsp.mbn`, `QCS6490-Radxa-Dragon-Q6A-tplg.bin`, `a660_zap.mbn` (GPU), `a660_gmu.bin.zst`/`a660_sqe.fw.zst` (GPU GMU / DPU), `qupv3fw.elf` (QUP serial engines) e o firmware do WiFi6/BT (`ath11k/WCN6750/hw1.0/qcm6490/wpss.mbn.zst` + `board-2.bin.zst` — o chip companion é o **WCN6750** via `ath11k`, já mainline; a extensão `radxa-aic8800` do Armbian é para um dongle USB opcional, não o WiFi onboard).
+
+> Nota de licença: são blobs binários da Qualcomm redistribuídos pela própria Radxa (mesmo termo do `linux-firmware.git`). Ok para nosso pipeline de build; ao publicar a imagem final, incluir o aviso de licença (`WHENCE`/`LICENSE.qcom`) como o `linux-firmware` faz.
+
 ## 4. Primeiro resultado concreto
 
 Rodamos (dentro de container Docker, gerenciado automaticamente pelo próprio Armbian Build Framework — nosso host é Ubuntu 26.04 "Resolute", não Debian Trixie nativo):
@@ -90,10 +142,10 @@ Isso baixou (via cache remoto do Armbian, `ghcr.io/armbian/os/kernel-qcs6490-cur
 
 ## 5. Próximos passos (Fase 1 — Server)
 
-1. `debootstrap`/`mmdebstrap` de um rootfs Ubuntu 26.04 "resolute" arm64 puro (mesma técnica usada no build da Kali; este host já tem `qemu-user`/binfmt-aarch64 registrado, cross-chroot funciona nativamente).
-2. `dpkg -i` dos 4 `.deb` do kernel Armbian dentro desse rootfs.
-3. Instalar firmware: `linux-firmware` (pacote Ubuntu) + os blobs extras específicos da Q6A listados no §2.2 (via o script/hook do initramfs do Armbian, ou copiando manualmente) + o `.deb` do `alsa-ucm-conf` da Radxa.
-4. Montar partição GPT (ESP FAT32 + rootfs), instalar GRUB arm64 com a extensão de DTB, gerar initramfs.
+1. ✅ `debootstrap` do rootfs Ubuntu 26.04 "resolute" arm64 puro — feito, ver [scripts/01-build-rootfs.sh](../scripts/01-build-rootfs.sh).
+2. `dpkg -i` dos `.deb` do kernel Armbian (`linux-image`/`linux-dtb`, ver §4) dentro desse rootfs.
+3. Instalar firmware: os blobs específicos da Q6A já extraídos em [`artifacts/firmware-qcs6490-dragon-q6a/`](../artifacts/firmware-qcs6490-dragon-q6a/) (§3.2) + `linux-firmware` do Ubuntu pro resto + o `.deb` do `alsa-ucm-conf` da Radxa (§2.2/§3.2).
+4. Montar partição GPT igual à real (§3.1: `config` 16MB + `efi` 1GB ESP + `rootfs` ext4), instalar **systemd-boot** (`bootctl install`) com entrada BLS usando o cmdline de referência do §3.1, **sem se preocupar com DTB** (vem do firmware).
 5. Empacotar como `.img`, comprimir `.img.xz`, gravar num NVMe via case USB/Thunderbolt e testar na Q6A (HDMI, rede, áudio, NVMe).
 6. Só depois disso validado: Fase 2 — instalar `ubuntu-desktop` + GNOME por cima do Server já funcional.
 
