@@ -321,6 +321,40 @@ Verificado montando cada partição (uma de cada vez, via loop, só para checage
 
 Resultado: [`output/radxa-dragon-q6a_resolute_server_dev.img.xz`](../output/) — 8GB raw → **1,71GB comprimido**.
 
+## 6.1 Bug de áudio específico do Desktop: SoundWire/WCD938x nunca enumera
+
+**Sintoma:** com `ubuntu-desktop-minimal` instalado e ativo, `aplay -l` mostra "no soundcards found" — nenhuma placa de som aparece, nem HDMI nem fone. `wpctl status`/`pactl` idem, vazio.
+
+**Isolamento (metodologia):** antes de instalar o Desktop, foi feito um snapshot completo do rootfs Server já validado (`output/rootfs-server-snapshot`). Construída uma imagem de teste a partir desse snapshot (rootfs idêntico, MESMO kernel 6.18.2, MESMO firmware) — áudio funcionou perfeitamente (`card 0: QCS6490RadxaDra...` apareceu, som audível). Ou seja: **o bug é causado por algo que o Desktop instala/ativa**, não pelo kernel/firmware em si.
+
+**Causa raiz encontrada:** `/sys/bus/soundwire/devices/` fica **completamente vazio** com o Desktop ativo — o barramento SoundWire nunca enumera o codec WCD938x. `dmesg` mostra:
+```
+platform 3210000.soundwire / 3230000.soundwire: deferred probe pending: qcom-soundwire: unable to get iface clock
+platform sound: deferred probe pending: snd-sc8280xp: WCD Playback: codec dai not found
+```
+Isso bate com um padrão de bug conhecido do upstream: uma condição de corrida na inicialização SoundWire do driver `wcd938x`, onde o lado RX tenta configurar o micbias via regmap do TX antes do TX terminar de enumerar ("ASoC: codecs: wcd938x: fix soundwire initialisation race", LKML, commit `6f49256897083848ce9a59651f6b53fc80462397`, ~2023). Nosso kernel (6.18.2, 2026) é posterior a esse fix — ou é uma corrida diferente/relacionada não coberta por aquele patch, ou o fork da Radxa não tem o fix.
+
+Tentativas que NÃO resolveram:
+- Forçar reprobe manual (`echo sound > /sys/bus/platform/drivers/snd-sc8280xp/bind`) → retorna EAGAIN (continua deferred).
+- Desabilitar/reabilitar "ADSP/CDSP firmware preload" na BIOS/UEFI (Hypervisor Settings) → sem efeito; usuário já tinha revertido pra Enabled (padrão) num teste anterior pro bug do `qcom-apm gprsvc CMD timeout`, que é um problema separado.
+- `systemd-detect-virt` confirma `none` — hardware real, não é detecção de VM causando o problema.
+
+**Decisão do usuário:** testar o kernel **edge** (7.2.3, mainline `git.kernel.org` tag `v7.2.3`, via `./compile.sh kernel BOARD=radxa-dragon-q6a BRANCH=edge` do Armbian) como próxima tentativa — mesmo sabendo do risco confirmado (§4.11) de que kernel 7.x tem uma regressão de HDMI relatada no fórum da Radxa pra essa placa exata. Antes da troca, foi tirado um snapshot de segurança do rootfs Desktop atual (kernel 6.18.2 + GNOME + todos os fixes): `output/rootfs-desktop-kernel618-snapshot`.
+
+### Troca de kernel: current (6.18.2) → edge (7.2.3) — [scripts/05-switch-kernel-edge.sh](../scripts/05-switch-kernel-edge.sh)
+
+Processo: purga `linux-image-current-qcs6490`/`linux-dtb-current-qcs6490`, instala os `.deb` do kernel edge, reconstrói o driver `aic8800-usb-dkms` (WiFi+BT) contra os headers novos, roda `update-initramfs -u -k all` (o hook `zz-qcs6490-firmware` já estava em `/etc/initramfs-tools/hooks`, não precisou recriar), e limpa as ferramentas de build de novo (mesmo cuidado do §5.4 de copiar os `.ko` pra fora do controle do dkms antes de purgar).
+
+**Dois problemas encontrados e corrigidos nessa troca:**
+
+1. **Purge do kernel antigo não teve efeito na primeira tentativa** — `apt-get purge -y linux-image-current-qcs6490 ...` rodou sem erro mas `dpkg -l` continuou mostrando o pacote instalado depois. Rodado manualmente uma segunda vez, funcionou normalmente (motivo exato não identificado — suspeita de alguma disputa de lock/trigger do dpkg durante o passo anterior de instalação do kernel edge). Efeito colateral: como o kernel antigo não tinha sido removido, o script de limpeza calculou o `KVER` errado (`ls -d */ | head -n1` pegou "6.18.2..." em vez de "7.2.3-edge..." por ordem alfabética) e tentou copiar `.ko` de um diretório que já não existia (o 6.18.2 já tinha sido limpo na Fase 1). Corrigido com um script de correção pontual ([scripts/lib/inner-switch-kernel-edge-fixup.sh](../scripts/lib/inner-switch-kernel-edge-fixup.sh)) que remove os restos do kernel antigo, confirma que só sobrou um `KVER` (com `[ "$KVER" = "7.2.3-edge-qcs6490" ] || exit 1` como trava), e só então termina a reconstrução do driver + limpeza.
+
+2. **⚠️ Purgar `binutils`/`binutils-aarch64-linux-gnu` derrubou o Desktop inteiro.** O pacote `crash` (ferramenta de análise de kernel dump, instalado automaticamente como Recommends de algum pacote do kernel) tem `Depends: binutils` direto. Ao purgar `binutils` (parte da lista de "ferramentas de build" que também usamos na Fase 1, onde funcionou sem problema porque o Desktop ainda não existia), o apt cascateou: `crash` → `makedumpfile` → cadeia que o `ubuntu-desktop-minimal` também dependia, e o apt decidiu remover `ubuntu-desktop-minimal` + `gdm3` + `x11-xserver-utils` inteiros junto, silenciosamente (dentro de um `apt-get purge -y ... || true` cujo log só foi inspecionado depois). Corrigido reinstalando `ubuntu-desktop-minimal` (recompôs gdm3 e tudo mais) e remascarando `tpm2.target`. **Lição registrada:** ao limpar ferramentas de build num rootfs que já tem o Desktop instalado, **não incluir `binutils`/`binutils-*` na lista de purge** — o ganho de espaço é pequeno (poucos MB) comparado ao risco.
+
+Resultado após as correções: rootfs com um único kernel (`7.2.3-edge-qcs6490`), driver aic8800 reconstruído e realocado pra fora do dkms, initramfs regenerado, `ubuntu-desktop-minimal`+`gdm3` de volta, `tpm2.target` mascarado, ferramentas de build limpas — pronto pra montar a imagem e testar na placa.
+
+**Próximo passo obrigatório ao testar:** verificar HDMI **antes de qualquer outra coisa**, já que essa é a regressão conhecida e o motivo do risco assumido. Só depois, testar se o SoundWire/áudio realmente foi corrigido.
+
 ## Fontes consultadas
 
 - [docs.radxa.com/en/dragon/q6a](https://docs.radxa.com/en/dragon/q6a) — specs, getting started, instalação em NVMe, FAQ
