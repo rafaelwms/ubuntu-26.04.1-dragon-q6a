@@ -11,7 +11,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ROOTFS="$PROJECT_DIR/output/rootfs"
+ROOTFS="${ROOTFS:-$PROJECT_DIR/output/rootfs}"
 SCRIPTS_LIB="$PROJECT_DIR/scripts/lib"
 IMG_NAME="${1:-radxa-dragon-q6a_resolute_server_dev.img}"
 IMG_PATH="$PROJECT_DIR/output/$IMG_NAME"
