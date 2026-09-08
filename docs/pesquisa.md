@@ -298,12 +298,22 @@ Base: Server já validado (§4, checklist completo em §5) — boot, HDMI com GP
 2. ✅ Kernel + firmware + fix de áudio instalados e verificados — §4.1, [scripts/02-install-kernel-firmware.sh](../scripts/02-install-kernel-firmware.sh).
 3. ✅ Imagem montada e comprimida (sem loop device) — §4.2, [scripts/03-assemble-image.sh](../scripts/03-assemble-image.sh).
 4. ✅ Gravado num NVMe de testes e testado na Q6A de verdade: **boot ok, HDMI com GPU acelerada ok, login ok, Wi-Fi+Bluetooth onboard (nativo, sem dongle — §4.6b) + SSH ok, áudio ok (fone e HDMI, confirmado audível)** — §4.3–§4.8.
-5. Em aberto, não bloqueante:
-   - Áudio funciona via ativação manual do UCM; falta confirmar que fica automático quando instalarmos PipeWire na Fase 2 (deve funcionar, mesmo UCM).
-   - ✅ **`apt update && apt upgrade` testado no Server, no hardware real — SEM quebrar o HDMI** (ver §5.1 abaixo). Era exatamente o problema original da imagem stock da Radxa (§2.1) que motivou o projeto inteiro.
-   - Chave SSH de dev embutida na imagem (§4.9) — remover antes de qualquer imagem que saia da bancada.
-   - Ferramentas de build (gcc/dkms/headers, usadas só pra compilar o driver aic8800) ainda ocupam espaço na imagem — dá pra enxugar.
-6. Próximo grande passo: **Fase 2** — instalar `ubuntu-desktop-minimal` + GNOME por cima do Server já validado.
+5. ✅ Áudio funciona via ativação manual do UCM.
+6. ✅ **`apt update && apt upgrade` testado no Server, no hardware real — SEM quebrar o HDMI** (ver §5.1 abaixo). Era exatamente o problema original da imagem stock da Radxa (§2.1) que motivou o projeto inteiro.
+7. ✅ Chave SSH de dev (§4.9) removida do rootfs definitivo.
+8. ✅ Ferramentas de build (gcc/dkms/headers) removidas do rootfs definitivo (§ limpeza pós-driver aic8800).
+9. Próximo grande passo, feito: **Fase 2** — instalar `ubuntu-desktop-minimal` + GNOME por cima do Server já validado.
+
+## 7. Imagens finais (sem chave de dev)
+
+Com Server e Desktop validados no hardware real (boot, HDMI com GPU acelerada, Wi-Fi+Bluetooth onboard, áudio via UCM, auto-resize no primeiro boot, `apt upgrade` resiliente), a chave SSH de desenvolvimento (§4.9) foi removida dos dois rootfs (`scripts/02f-remove-dev-sshkey.sh` no Desktop, equivalente manual no snapshot do Server) e as imagens definitivas foram montadas:
+
+- **Server:** `output/radxa-dragon-q6a_resolute_server_final.img.xz` (a partir de `output/rootfs-server-snapshot`, kernel 6.18.2, sem GNOME).
+- **Desktop:** `output/radxa-dragon-q6a_resolute_desktop_final.img.xz` (a partir de `output/rootfs`, kernel 6.18.2 + `ubuntu-desktop-minimal`).
+
+⚠️ Sem a chave de dev, acesso remoto às imagens finais passa a exigir a senha do usuário `radxa` (login padrão: `radxa`/`radxa`, trocar no primeiro uso) — não há mais backdoor de SSH pra debug.
+
+**Limitação conhecida documentada (não bloqueante):** áudio no Desktop não funciona (bug real de corrida na inicialização do SoundWire/WCD938x, §6.1) — no Server funciona normalmente. Entrada duplicada cosmética no menu do systemd-boot depois de um `apt upgrade` (§5.1) — não investigada a fundo, não afeta o funcionamento.
 
 ## 5.1 `apt upgrade` no Server — não quebra o HDMI (ao contrário da imagem original) 🎉
 
