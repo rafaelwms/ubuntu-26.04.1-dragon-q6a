@@ -355,6 +355,19 @@ Resultado após as correções: rootfs com um único kernel (`7.2.3-edge-qcs6490
 
 **Próximo passo obrigatório ao testar:** verificar HDMI **antes de qualquer outra coisa**, já que essa é a regressão conhecida e o motivo do risco assumido. Só depois, testar se o SoundWire/áudio realmente foi corrigido.
 
+### Resultado do teste no hardware real: kernel edge REJEITADO
+
+Gravado e testado na Q6A de verdade. **HDMI quebrou exatamente como previsto** — imagem do boot do Ubuntu totalmente distorcida/inclinada (corrupção visual clássica de timing incorreto no controlador de vídeo), confirmando ao vivo o que o fórum da Radxa já relatava. WiFi e Bluetooth continuaram funcionando normalmente (deu pra confirmar via SSH mesmo com o vídeo quebrado).
+
+Com acesso SSH, foi possível investigar mais e checar o áudio antes de decidir reverter:
+
+- **Causa provável do HDMI quebrado:** `dmesg` mostra o próprio driver avisando `[drm:programmable_fetch_get_num_lines] low vbp+vfp may lead to perf issues in some cases` — um aviso sobre os parâmetros de timing (back porch/front porch) do controlador DPU. Essa placa faz HDMI através de uma ponte DisplayPort→HDMI (`ae90000.displayport-controller` + `/hdmi-bridge` no device-tree, com um "dependency cycle" entre o PHY combo USB/DP e a ponte) — uma área do driver (`msm_dp`/bridge) que teve bastante refatoração entre 6.18 e o mainline 7.2.3. Consertar isso direito exigiria portar patches específicos de link-training/timing do driver de bridge — fora do escopo razoável deste projeto, e o próprio mantenedor da Radxa já tinha avisado pra não usar kernel 7.x nessa placa (§4.11).
+- **Áudio/SoundWire: melhorou, mas não resolveu.** Pela primeira vez, `/sys/bus/soundwire/devices/` deixou de estar vazio — o barramento passou a enumerar o codec WCD938x (`sdw:2:0:0217:010d:00:4`, `sdw:3:0:0217:010d:00:3` apareceram). Mas surgiu um erro novo: `qcom-soundwire: din-ports (0) mismatch with controller (1)` / `dout-ports (5) mismatch with controller (6)` — incompatibilidade entre o número de portas que o codec espera e o que o controlador oferece nessa versão do driver. Resultado prático: `aplay -l` continua sem mostrar nenhuma placa de som.
+
+**Veredito: kernel 7.2.3 perde nos dois critérios — não resolve o áudio E quebra o HDMI.** Não vale a pena seguir por essa linha. `output/rootfs` foi revertido pro snapshot `rootfs-desktop-kernel618-snapshot` (kernel 6.18.2, Desktop completo, todos os fixes da Fase 1+2) — a tentativa com kernel edge fica preservada em `output/rootfs-failed-edge-kernel-desktop` só de referência. Nova imagem montada: `output/radxa-dragon-q6a_resolute_desktop_dev.img.xz`.
+
+**Conclusão sobre o áudio no Desktop:** fica registrado como **limitação conhecida, não resolvida** — bug real de corrida na inicialização do SoundWire/WCD938x (ver acima), presente tanto no kernel 6.18.2 quanto (de forma diferente) no 7.2.3. Não é algo que dá pra resolver só trocando de branch de kernel; precisaria de um patch específico no driver `wcd938x`/`qcom-soundwire`, que está fora do escopo atual. O Server (sem Desktop) não tem esse problema.
+
 ## Fontes consultadas
 
 - [docs.radxa.com/en/dragon/q6a](https://docs.radxa.com/en/dragon/q6a) — specs, getting started, instalação em NVMe, FAQ
