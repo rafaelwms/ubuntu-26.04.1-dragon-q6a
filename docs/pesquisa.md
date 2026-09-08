@@ -300,10 +300,18 @@ Base: Server já validado (§4, checklist completo em §5) — boot, HDMI com GP
 4. ✅ Gravado num NVMe de testes e testado na Q6A de verdade: **boot ok, HDMI com GPU acelerada ok, login ok, Wi-Fi+Bluetooth onboard (nativo, sem dongle — §4.6b) + SSH ok, áudio ok (fone e HDMI, confirmado audível)** — §4.3–§4.8.
 5. Em aberto, não bloqueante:
    - Áudio funciona via ativação manual do UCM; falta confirmar que fica automático quando instalarmos PipeWire na Fase 2 (deve funcionar, mesmo UCM).
-   - Endurecer o processo de update (a causa raiz do "HDMI quebra depois do apt upgrade" da imagem original, §2.1, ainda não foi diretamente testada nesta imagem nossa — evitar `apt upgrade` direto no kernel/firmware por enquanto).
+   - ✅ **`apt update && apt upgrade` testado no Server, no hardware real — SEM quebrar o HDMI** (ver §5.1 abaixo). Era exatamente o problema original da imagem stock da Radxa (§2.1) que motivou o projeto inteiro.
    - Chave SSH de dev embutida na imagem (§4.9) — remover antes de qualquer imagem que saia da bancada.
    - Ferramentas de build (gcc/dkms/headers, usadas só pra compilar o driver aic8800) ainda ocupam espaço na imagem — dá pra enxugar.
 6. Próximo grande passo: **Fase 2** — instalar `ubuntu-desktop-minimal` + GNOME por cima do Server já validado.
+
+## 5.1 `apt upgrade` no Server — não quebra o HDMI (ao contrário da imagem original) 🎉
+
+Teste feito pelo usuário direto na placa: `sudo apt update && sudo apt upgrade -y` no Server (kernel 6.18.2). Atualizou uma quantidade grande de pacotes normalmente. Depois de reiniciar, o menu do systemd-boot mostrou **duas entradas** ("Ubuntu 26.04" e "Ubuntu 26.04.1") — mas escolhendo qualquer uma das duas, o sistema sobe normalmente e se identifica como 26.04.1. Sem quebra de HDMI, sem quebra de nada — **exatamente o comportamento que a imagem stock da Radxa NÃO tinha** (§2.1, a causa raiz original que motivou todo esse projeto).
+
+Hipótese pra entrada duplicada (cosmético, não bloqueante): como nosso kernel é instalado via `.deb` local (não vem de nenhum repositório apt), o `apt upgrade` não deveria tocar nele — a entrada nova provavelmente veio de algum hook de `kernel-install`/`linux-base` disparado por outro pacote atualizado (ex.: `base-files`, que é o que normalmente carrega a string de versão do Ubuntu de "26.04" pra "26.04.1" num point release), gerando uma entrada adicional no `/boot/loader/entries/` sem remover a antiga. Não investigado a fundo ainda — não afeta o funcionamento, só polui o menu de boot. Vale uma limpeza (remover a entrada órfã, ou um script que rode `bootctl cleanup`/remova entradas duplicadas) antes da imagem final, mas não é bloqueante.
+
+**Ainda não testado:** o mesmo `apt upgrade` no Desktop (GNOME) — vale fazer o mesmo teste lá antes de considerar as imagens definitivamente prontas.
 
 ## 4.2 Imagem montada (sem loop device)
 
