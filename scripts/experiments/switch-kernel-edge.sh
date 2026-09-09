@@ -5,14 +5,19 @@
 # docs/pesquisa.md) -- risco conhecido: kernel 7.x tem relato de quebrar
 # HDMI nessa placa.
 #
-# Uso: scripts/05-switch-kernel-edge.sh
+# ⚠️ EXPERIMENTO REJEITADO -- mantido só como referência histórica (ver
+# docs/pesquisa.md §6.1-bis): o kernel edge quebrou o HDMI e não resolveu
+# o áudio. A imagem final usa o kernel "current" (6.18.2). Não faz parte
+# do pipeline normal de build (scripts/build.sh).
+#
+# Uso: scripts/experiments/switch-kernel-edge.sh
 set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ROOTFS="$PROJECT_DIR/output/rootfs"
 KERNEL_DEBS="$PROJECT_DIR/artifacts/kernel-edge-qcs6490"
 AIC8800_DEBS="$PROJECT_DIR/artifacts/aic8800-dkms"
-SCRIPTS_LIB="$PROJECT_DIR/scripts/lib"
+SCRIPTS_LIB="$PROJECT_DIR/scripts/experiments"
 
 [ -d "$ROOTFS/etc" ] || { echo "Rootfs não encontrado em $ROOTFS — rode 01 e 02 antes." >&2; exit 1; }
 [ -d "$KERNEL_DEBS" ] || { echo "Kernel edge não encontrado em $KERNEL_DEBS — rode ./compile.sh kernel BOARD=radxa-dragon-q6a BRANCH=edge no armbian-build antes." >&2; exit 1; }

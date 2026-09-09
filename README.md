@@ -1,32 +1,179 @@
-# Ubuntu 26.04 (Resolute) para Radxa Dragon Q6A
+# Ubuntu 26.04.1 "Resolute Raccoon" for the Radxa Dragon Q6A
 
-Build customizado do Ubuntu 26.04 LTS "Resolute Raccoon" para a [Radxa Dragon Q6A](https://radxa.com/products/dragon/q6a/) (Qualcomm QCS6490) — Server primeiro, Desktop (GNOME) depois.
+<!-- ![Radxa Dragon Q6A running Ubuntu Desktop](docs/images/hero.jpg) -->
 
-Projeto irmão de [kali-radxa-dragon-q6a](https://github.com/rafaelwms/kali-radxa-dragon-q6a), desta vez atacando também os problemas de HDMI (quebra após update) e áudio que ficaram em aberto por lá.
+Custom Ubuntu 26.04.1 LTS build for the [Radxa Dragon Q6A](https://radxa.com/products/dragon/q6a/) (Qualcomm QCS6490) — **Server** and **Desktop (GNOME)** images, both fixing the HDMI-breaks-after-update and audio bugs of the stock Radxa image.
 
-## Status
+Sibling project of [kali-radxa-dragon-q6a](https://github.com/rafaelwms/kali-radxa-dragon-q6a).
 
-🚧 Em desenvolvimento — Fase 1 (Server).
+🇧🇷 **[Leia em português mais abaixo](#português)**
 
-Veja [`docs/pesquisa.md`](docs/pesquisa.md) para o levantamento técnico completo (hardware, causa raiz dos bugs de HDMI/áudio, decisão de arquitetura e fontes).
+---
 
-## Arquitetura (resumo)
+## English
 
-- **Rootfs:** Ubuntu 26.04 "resolute" arm64 puro, via `debootstrap`.
-- **Kernel/DTB/firmware:** mainline (6.18, `radxa/kernel.git`) via [Armbian Build Framework](https://github.com/armbian/build) — que já resolve os bugs de HDMI e áudio desta placa (ver `docs/pesquisa.md` §2).
-- **Bootloader:** `systemd-boot` (UEFI, Boot Loader Specification) — não GRUB, não U-Boot. DTB vem do firmware (ABL/UEFI), não do bootloader.
-- **NPU (Hexagon/QAIRT):** fora do escopo da Fase 1 (depende de kernel vendor + blobs proprietários).
+### What you get
 
-## Estrutura
+| | Server | Desktop |
+|---|---|---|
+| Base | Ubuntu 26.04.1 LTS arm64, kernel 6.18.2 (mainline, via Armbian) | Same base + `ubuntu-desktop-minimal` (GNOME, no office suite/games) |
+| HDMI | ✅ hardware-accelerated (Adreno GPU) | ✅ same |
+| Wi-Fi + Bluetooth | ✅ onboard, native driver | ✅ same |
+| Audio | ✅ works (headphone + HDMI) | ⚠️ **known bug, not working** — see [Known limitations](#known-limitations) |
+| `apt upgrade` | ✅ confirmed does **not** break HDMI | ✅ same |
+| Browser | — | Firefox (native `.deb`, official Mozilla repo — no snap) |
+| Software center | — | `gnome-software` (native, no snap) |
+| Default login | `radxa` / `radxa` — change it on first boot (`passwd`) | same |
+
+Root partition grows automatically to fill the whole disk on first boot. Each device gets its own unique `machine-id`, generated on first boot.
+
+### Known limitations
+
+- **Desktop audio doesn't work.** Root cause: a real upstream kernel race condition in the SoundWire bus initialization — the WCD938x audio codec never enumerates on the bus when GNOME is active (works fine on the Server image with the identical kernel). We tested a newer kernel (7.2.3) specifically to fix this; it made the SoundWire bus enumerate the codec, but a different port-mismatch bug appeared and audio still didn't work — and that kernel broke HDMI entirely on this board. Reverted. Details in [docs/pesquisa.md, section 6.1](docs/pesquisa.md).
+- The NPU (Hexagon DSP, AI acceleration) is out of scope — it depends on proprietary vendor blobs not available for the mainline kernel we use.
+
+### Install a pre-built image
+
+1. Go to [Releases](../../releases) and download every `.part*` file for the image you want (Server **or** Desktop — don't mix them), plus the two `SHA256SUMS-*.txt` files.
+2. Run the interactive installer — it verifies checksums, reassembles the image, and flashes it, asking you to confirm the exact target device before writing anything:
+
+   ```bash
+   ./install.sh
+   ```
+
+   (Available in English and Portuguese — it asks which one at startup.)
+
+Or do it by hand:
+
+```bash
+sha256sum -c SHA256SUMS-parts.txt --ignore-missing
+cat radxa-dragon-q6a_resolute_<server|desktop>_final.img.xz.part* > image.img.xz
+sha256sum -c SHA256SUMS-full.txt --ignore-missing
+xzcat image.img.xz | sudo dd of=/dev/YOUR_DEVICE bs=4M status=progress conv=fsync
+```
+
+### Build it yourself from source
+
+No need to download anything from Releases — this reproduces the whole pipeline (kernel build, rootfs, firmware, all the fixes below) from scratch:
+
+```bash
+./scripts/build.sh
+```
+
+Needs Docker and about 15GB of free disk space. Takes a while (kernel build is fast thanks to Armbian's remote cache; `debootstrap` + package installs are the bulk of the time). Also bilingual, interactive.
+
+### The journey (short version)
+
+The stock Radxa OS image for this board has two known problems: **HDMI stops working after `apt upgrade`**, and **audio never worked at all** (Radxa's own docs warn against plain `apt upgrade` for the first one; the second was reported against our sibling Kali project too). Instead of patching the stock image, we built Ubuntu from scratch on top of a validated, mainline-adjacent foundation:
+
+- **Bootloader, corrected by inspecting the real hardware.** Generic Armbian docs suggested GRUB; mounting the actual Kali installation's ESP showed it's plain **systemd-boot** (Boot Loader Specification), with the device tree delivered by the UEFI firmware itself — no bootloader-side DTB management needed. This shaped the whole image layout.
+- **Audio root-caused for real, not guessed.** Live inspection of the working Kali install found a broken symlink in `alsa-ucm-conf` pointing at a directory that doesn't exist in the stock package version — confirmed against two upstream Armbian fixes for this exact board. A Radxa backport of `alsa-ucm-conf` plus the correct UCM activation sequence (`alsaucm ... set _verb HiFi set _enadev Headphones`) got real, audible sound working on the Server image.
+- **Wrong assumption caught and corrected mid-project.** Wi-Fi was initially assumed to need an external USB dongle (missing device-tree node for the PCIe path). Testing without one showed it worked anyway — the onboard module uses the same AIC8800-family chip over an internal USB path, confirmed by matching the exact device-tree node. No dongle needed after all.
+- **`apt upgrade` resilience validated on real hardware** — the exact problem that motivated this whole project, tested directly: full package upgrade, reboot, HDMI and everything else still working. (A harmless cosmetic side effect — a duplicate boot-menu entry from systemd's own `kernel-install` — was root-caused and fixed with a small self-healing service.)
+- **A newer kernel was tested and rejected, on purpose.** When a real SoundWire/audio bug turned up on the Desktop image, we built and tested kernel 7.2.3 specifically to see if it fixed it. It didn't (a different bug appeared instead), and it broke HDMI outright on this board — a regression the Radxa team itself has confirmed and advises against. We reverted and documented the audio bug as a known limitation instead of shipping a worse trade-off.
+- **A quieter bug found by accident:** every device flashed from the same image was getting the *exact same* `machine-id` (baked in by `systemd` during the build's `apt install`, never reset) — fixed by clearing it as the last build step, so each device generates its own on first boot.
+
+The full, warts-and-included technical log — every dead end, every root cause, every command — is in [`docs/pesquisa.md`](docs/pesquisa.md) (in Portuguese). The commit history tells the same story chronologically if you'd rather read it that way.
+
+### Repository structure
 
 ```
-docs/        pesquisa e decisões técnicas
-scripts/     scripts do pipeline de build
-artifacts/   artefatos intermediários pequenos (ex.: .deb do kernel)
+install.sh          interactive installer (flash a pre-built release)
+scripts/build.sh     interactive orchestrator (build from source)
+scripts/             the actual build pipeline, one numbered script per step
+scripts/experiments/ things we tried and rejected (kept for the record)
+docs/pesquisa.md     the full technical research log (Portuguese)
 ```
 
-Imagens finais (`.img.xz`) não ficam no git — serão publicadas como Release do GitHub, como no repositório da Kali.
+### Credits
 
-## Créditos
+🤖 Part of this project was built pair-programming with [Claude Code](https://claude.com/claude-code).
 
-🤖 Parte deste projeto conduzida em par com [Claude Code](https://claude.com/claude-code).
+### License
+
+[MIT](LICENSE).
+
+---
+
+## Português
+
+### O que você tem aqui
+
+| | Server | Desktop |
+|---|---|---|
+| Base | Ubuntu 26.04.1 LTS arm64, kernel 6.18.2 (mainline, via Armbian) | Mesma base + `ubuntu-desktop-minimal` (GNOME, sem suíte de escritório/jogos) |
+| HDMI | ✅ com aceleração de GPU (Adreno) | ✅ igual |
+| Wi-Fi + Bluetooth | ✅ onboard, driver nativo | ✅ igual |
+| Áudio | ✅ funciona (fone + HDMI) | ⚠️ **bug conhecido, não funciona** — ver [Limitações conhecidas](#limitações-conhecidas) |
+| `apt upgrade` | ✅ confirmado que não quebra o HDMI | ✅ igual |
+| Navegador | — | Firefox (`.deb` nativo, repo oficial da Mozilla — sem snap) |
+| Central de software | — | `gnome-software` (nativo, sem snap) |
+| Login padrão | `radxa` / `radxa` — troque no primeiro boot (`passwd`) | igual |
+
+A partição raiz cresce sozinha pra ocupar o disco todo no primeiro boot. Cada aparelho gera seu próprio `machine-id` único no primeiro boot.
+
+### Limitações conhecidas
+
+- **O áudio do Desktop não funciona.** Causa raiz: uma corrida de inicialização real do kernel no barramento SoundWire — o codec de áudio WCD938x nunca enumera nesse barramento quando o GNOME está ativo (funciona normalmente no Server, com o kernel idêntico). Testamos um kernel mais novo (7.2.3) especificamente pra tentar corrigir isso; o barramento passou a enumerar o codec, mas apareceu um bug diferente de incompatibilidade de portas e o áudio continuou não funcionando — e esse kernel quebrou o HDMI de vez nessa placa. Revertido. Detalhes em [docs/pesquisa.md, seção 6.1](docs/pesquisa.md).
+- A NPU (Hexagon DSP, aceleração de IA) está fora do escopo — depende de blobs proprietários do fabricante que não têm suporte maduro no kernel mainline que usamos.
+
+### Instalar uma imagem pronta
+
+1. Vá em [Releases](../../releases) e baixe todas as partes (`.part*`) da imagem que você quer (Server **ou** Desktop — não misture), mais os dois arquivos `SHA256SUMS-*.txt`.
+2. Rode o instalador interativo — ele confere os checksums, reconstrói a imagem, e grava, pedindo pra você confirmar o dispositivo de destino antes de escrever qualquer coisa:
+
+   ```bash
+   ./install.sh
+   ```
+
+   (Disponível em português e inglês — ele pergunta qual no início.)
+
+Ou na mão:
+
+```bash
+sha256sum -c SHA256SUMS-parts.txt --ignore-missing
+cat radxa-dragon-q6a_resolute_<server|desktop>_final.img.xz.part* > imagem.img.xz
+sha256sum -c SHA256SUMS-full.txt --ignore-missing
+xzcat imagem.img.xz | sudo dd of=/dev/SEU_DISPOSITIVO bs=4M status=progress conv=fsync
+```
+
+### Construir você mesmo, a partir do código-fonte
+
+Sem precisar baixar nada das Releases — isso reproduz o pipeline inteiro (build do kernel, rootfs, firmware, todos os fixes abaixo) do zero:
+
+```bash
+./scripts/build.sh
+```
+
+Precisa de Docker e uns 15GB de espaço livre. Demora um tempo (o build do kernel é rápido graças ao cache remoto do Armbian; o `debootstrap` + instalação de pacotes é que consome a maior parte do tempo). Também bilíngue, interativo.
+
+### A jornada (versão resumida)
+
+A imagem stock da Radxa OS pra essa placa tem dois problemas conhecidos: **o HDMI para de funcionar depois de um `apt upgrade`**, e **o áudio nunca funcionou** (a própria documentação da Radxa avisa contra `apt upgrade` puro por causa do primeiro; o segundo já tinha sido relatado no nosso projeto irmão, o Kali). Em vez de remendar a imagem stock, construímos o Ubuntu do zero em cima de uma base validada, próxima do mainline:
+
+- **Bootloader, corrigido inspecionando o hardware de verdade.** A documentação genérica do Armbian sugeria GRUB; montar a ESP da instalação Kali real mostrou que é **systemd-boot** puro (Boot Loader Specification), com o device tree entregue pelo próprio firmware UEFI — sem precisar gerenciar DTB no bootloader. Isso moldou toda a arquitetura da imagem.
+- **Áudio com causa raiz confirmada de verdade, não só suposição.** Inspecionar ao vivo a instalação Kali funcionando achou um symlink quebrado no `alsa-ucm-conf`, apontando pra um diretório que não existe na versão stock do pacote — confirmado contra dois fixes do Armbian pra essa placa exata. Um backport da Radxa do `alsa-ucm-conf`, mais a sequência certa de ativação do UCM (`alsaucm ... set _verb HiFi set _enadev Headphones`), fez o som sair de verdade, audível, no Server.
+- **Suposição errada, pega e corrigida no meio do projeto.** Achávamos que o Wi-Fi precisava de um dongle USB externo (faltava o nó de device-tree do caminho PCIe). Testando sem dongle nenhum, funcionou do mesmo jeito — o módulo onboard usa o mesmo chip da família AIC8800, só que por um caminho USB interno, confirmado batendo o nó exato do device-tree. No fim, dongle nenhum era necessário.
+- **Resiliência do `apt upgrade` validada no hardware real** — exatamente o problema que motivou o projeto inteiro, testado direto: upgrade completo de pacotes, reinício, HDMI e tudo mais continuando normal. (Um efeito colateral cosmético e inofensivo — uma entrada duplicada no menu de boot, criada pelo próprio `kernel-install` do systemd — teve a causa raiz encontrada e corrigida com um pequeno serviço que se autocorrige.)
+- **Um kernel mais novo foi testado e rejeitado, de propósito.** Quando um bug real de áudio (SoundWire) apareceu no Desktop, construímos e testamos o kernel 7.2.3 especificamente pra ver se resolvia. Não resolveu (apareceu um bug diferente no lugar), e ainda quebrou o HDMI de vez nessa placa — uma regressão que a própria equipe da Radxa já confirma e recomenda evitar. Revertemos e documentamos o bug de áudio como limitação conhecida, em vez de entregar uma troca pior.
+- **Um bug mais discreto, achado por acaso:** todo aparelho gravado com a mesma imagem estava saindo com o **mesmo `machine-id`** (gerado pelo `systemd` durante o `apt install` do build, nunca zerado depois) — corrigido zerando ele como último passo do build, cada aparelho gera o seu no primeiro boot.
+
+O log técnico completo, sem cortes — cada beco sem saída, cada causa raiz, cada comando — está em [`docs/pesquisa.md`](docs/pesquisa.md). O histórico de commits conta a mesma história em ordem cronológica, se preferir ler assim.
+
+### Estrutura do repositório
+
+```
+install.sh          instalador interativo (grava uma release pronta)
+scripts/build.sh     orquestrador interativo (constrói a partir do código-fonte)
+scripts/             o pipeline de build de verdade, um script numerado por etapa
+scripts/experiments/ coisas que tentamos e descartamos (mantidas pro registro)
+docs/pesquisa.md     o log técnico completo de pesquisa
+```
+
+### Créditos
+
+🤖 Parte deste projeto foi construída em par com [Claude Code](https://claude.com/claude-code).
+
+### Licença
+
+[MIT](LICENSE).
