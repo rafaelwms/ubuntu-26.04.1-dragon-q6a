@@ -251,15 +251,27 @@ fi
 
 # ------------------------------------------------------------------
 # Reconstrói a imagem / Reassemble the image
+#
+# Aceita tanto uma release dividida em partes (.img.xz.part*, como as
+# publicadas no GitHub) quanto um .img.xz único e completo (como o que
+# scripts/build.sh gera direto em output/).
+# Accepts either a split release (.img.xz.part*, as published on
+# GitHub) or a single, already-whole .img.xz (like the one
+# scripts/build.sh produces directly in output/).
 # ------------------------------------------------------------------
 msg reassembling
-FIRST_PART="$(ls -- *"${IMAGE_TYPE}"*.img.xz.part* 2>/dev/null | sort | head -n1)"
-[ -n "$FIRST_PART" ] || {
-	echo "$(msg no_assets)" >&2
-	exit 1
-}
-IMG_XZ="${FIRST_PART%.part*}"
-cat -- *"${IMAGE_TYPE}"*.img.xz.part* >"$IMG_XZ"
+WHOLE_IMG="$(ls -- *"${IMAGE_TYPE}"*.img.xz 2>/dev/null | head -n1)"
+if [ -n "$WHOLE_IMG" ]; then
+	IMG_XZ="$WHOLE_IMG"
+else
+	FIRST_PART="$(ls -- *"${IMAGE_TYPE}"*.img.xz.part* 2>/dev/null | sort | head -n1)"
+	[ -n "$FIRST_PART" ] || {
+		echo "$(msg no_assets)" >&2
+		exit 1
+	}
+	IMG_XZ="${FIRST_PART%.part*}"
+	cat -- *"${IMAGE_TYPE}"*.img.xz.part* >"$IMG_XZ"
+fi
 
 msg verifying_full
 if [ -f SHA256SUMS-full.txt ]; then
