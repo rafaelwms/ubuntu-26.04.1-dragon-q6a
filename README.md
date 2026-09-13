@@ -34,13 +34,14 @@ Root partition grows automatically to fill the whole disk on first boot. Each de
 ### Install a pre-built image
 
 1. Go to [Releases](../../releases) and download every `.part*` file for the image you want (Server **or** Desktop — don't mix them), plus the two `SHA256SUMS-*.txt` files.
-2. Run the interactive installer — it verifies checksums, reassembles the image, and flashes it, asking you to confirm the exact target device before writing anything:
+2. Run the interactive installer for your OS — it verifies checksums, reassembles the image, and flashes it, asking you to confirm the exact target device before writing anything:
 
    ```bash
-   ./install.sh
+   ./install.sh       # Linux
+   ./install_mac.sh   # macOS
    ```
 
-   (Available in English and Portuguese — it asks which one at startup.)
+   (Both available in English and Portuguese — they ask which one at startup. The macOS version uses `diskutil`/raw-disk writes instead of `lsblk`/`dd` directly, since that's how flashing works there.)
 
 Or do it by hand:
 
@@ -78,7 +79,8 @@ The full, warts-and-included technical log — every dead end, every root cause,
 ### Repository structure
 
 ```
-install.sh          interactive installer (flash a pre-built release)
+install.sh          interactive installer, Linux (flash a pre-built release)
+install_mac.sh       interactive installer, macOS
 scripts/build.sh     interactive orchestrator (build from source)
 scripts/             the actual build pipeline, one numbered script per step
 scripts/experiments/ things we tried and rejected (kept for the record)
@@ -119,13 +121,14 @@ A partição raiz cresce sozinha pra ocupar o disco todo no primeiro boot. Cada 
 ### Instalar uma imagem pronta
 
 1. Vá em [Releases](../../releases) e baixe todas as partes (`.part*`) da imagem que você quer (Server **ou** Desktop — não misture), mais os dois arquivos `SHA256SUMS-*.txt`.
-2. Rode o instalador interativo — ele confere os checksums, reconstrói a imagem, e grava, pedindo pra você confirmar o dispositivo de destino antes de escrever qualquer coisa:
+2. Rode o instalador interativo do seu sistema — ele confere os checksums, reconstrói a imagem, e grava, pedindo pra você confirmar o dispositivo de destino antes de escrever qualquer coisa:
 
    ```bash
-   ./install.sh
+   ./install.sh       # Linux
+   ./install_mac.sh   # macOS
    ```
 
-   (Disponível em português e inglês — ele pergunta qual no início.)
+   (Os dois em português e inglês — perguntam qual no início. A versão de macOS usa `diskutil`/gravação no disco raw em vez de `lsblk`/`dd` direto, que é como funciona por lá.)
 
 Ou na mão:
 
@@ -163,7 +166,8 @@ O log técnico completo, sem cortes — cada beco sem saída, cada causa raiz, c
 ### Estrutura do repositório
 
 ```
-install.sh          instalador interativo (grava uma release pronta)
+install.sh          instalador interativo, Linux (grava uma release pronta)
+install_mac.sh       instalador interativo, macOS
 scripts/build.sh     orquestrador interativo (constrói a partir do código-fonte)
 scripts/             o pipeline de build de verdade, um script numerado por etapa
 scripts/experiments/ coisas que tentamos e descartamos (mantidas pro registro)

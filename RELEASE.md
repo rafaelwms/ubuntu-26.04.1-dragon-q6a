@@ -31,14 +31,15 @@ The NPU (Hexagon DSP, AI acceleration) is out of scope — it depends on proprie
 
 Each image is split into parts (~1.4GB each) to fit GitHub's release asset limits — download **all parts of the image you want** (don't mix Server and Desktop parts), plus both `SHA256SUMS-*.txt` files, then either:
 
-**Use the interactive installer** (recommended — verifies checksums, reassembles, and flashes for you, asking you to confirm the target device first):
+**Use the interactive installer for your OS** (recommended — verifies checksums, reassembles, and flashes for you, asking you to confirm the target device first):
 ```bash
 git clone https://github.com/rafaelwms/ubuntu-26.04.1-dragon-q6a.git
 cd ubuntu-26.04.1-dragon-q6a
-./install.sh
+./install.sh       # Linux
+./install_mac.sh   # macOS
 ```
 
-**Or do it by hand:**
+**Or do it by hand (Linux):**
 ```bash
 sha256sum -c SHA256SUMS-parts.txt --ignore-missing
 cat radxa-dragon-q6a_resolute_<server|desktop>_final.img.xz.part* > image.img.xz
@@ -83,14 +84,15 @@ A NPU (Hexagon DSP, aceleração de IA) está fora do escopo — depende de blob
 
 Cada imagem é dividida em partes (~1,4GB cada) pra caber no limite de tamanho de asset do GitHub — baixe **todas as partes da imagem que você quer** (não misture partes do Server com as do Desktop), mais os dois arquivos `SHA256SUMS-*.txt`, e então:
 
-**Use o instalador interativo** (recomendado — confere os checksums, reconstrói a imagem, e grava, pedindo pra você confirmar o dispositivo de destino antes):
+**Use o instalador interativo do seu sistema** (recomendado — confere os checksums, reconstrói a imagem, e grava, pedindo pra você confirmar o dispositivo de destino antes):
 ```bash
 git clone https://github.com/rafaelwms/ubuntu-26.04.1-dragon-q6a.git
 cd ubuntu-26.04.1-dragon-q6a
-./install.sh
+./install.sh       # Linux
+./install_mac.sh   # macOS
 ```
 
-**Ou na mão:**
+**Ou na mão (Linux):**
 ```bash
 sha256sum -c SHA256SUMS-parts.txt --ignore-missing
 cat radxa-dragon-q6a_resolute_<server|desktop>_final.img.xz.part* > imagem.img.xz
