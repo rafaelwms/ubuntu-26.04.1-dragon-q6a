@@ -323,11 +323,11 @@ fi
 # scripts/build.sh produces directly in output/).
 # ------------------------------------------------------------------
 msg reassembling
-WHOLE_IMG="$(ls -- *"${IMAGE_TYPE}"*.img.xz 2>/dev/null | head -n1)"
+WHOLE_IMG="$(ls -- *"${IMAGE_TYPE}"*.img.xz 2>/dev/null | head -n1 || true)"
 if [ -n "$WHOLE_IMG" ]; then
 	IMG_XZ="$WHOLE_IMG"
 else
-	FIRST_PART="$(ls -- *"${IMAGE_TYPE}"*.img.xz.part* 2>/dev/null | sort | head -n1)"
+	FIRST_PART="$(ls -- *"${IMAGE_TYPE}"*.img.xz.part* 2>/dev/null | sort | head -n1 || true)"
 	[ -n "$FIRST_PART" ] || {
 		echo "$(msg no_assets)" >&2
 		exit 1
