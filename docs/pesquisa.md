@@ -146,7 +146,7 @@ Rodando [scripts/02-install-kernel-firmware.sh](../scripts/02-install-kernel-fir
 
 Duas pedras no caminho, ambas resolvidas:
 - O rootfs mínimo não tinha `wget`/`ca-certificates` — adicionado ao script.
-- `alsa-ucm-conf` ficou "half-installed" por faltar `libasound2t64` (rootfs mínimo não tem libs de ALSA) — resolvido com `apt-get install -f`.
+- `alsa-ucm-conf` ficou "half-installed" por faltar `libasound2t64` (rootfs mínimo não tem libs de ALSA) — resolvido com `apt-get install -f`. **Nota (rebuild da v1.0.1):** esse `apt-get -f install -y` tinha sido rodado manualmente na hora, mas não tinha ficado gravado em [scripts/lib/inner-provision.sh](../scripts/lib/inner-provision.sh) — o script reproduzível (`./scripts/build.sh`) reproduzia o erro do zero. Corrigido de vez no script (`dpkg -i ucm.deb || true` + `apt-get -f install -y` logo depois), achado ao reconstruir a imagem Desktop do zero pra validar o fix de áudio (§9).
 
 **Verificação final — o symlink que estava quebrado na Kali agora resolve de verdade:**
 
@@ -313,7 +313,7 @@ Com Server e Desktop validados no hardware real (boot, HDMI com GPU acelerada, W
 
 ⚠️ Sem a chave de dev, acesso remoto às imagens finais passa a exigir a senha do usuário `radxa` (login padrão: `radxa`/`radxa`, trocar no primeiro uso) — não há mais backdoor de SSH pra debug.
 
-**Limitação conhecida documentada (não bloqueante):** áudio no Desktop não funciona (bug real de corrida na inicialização do SoundWire/WCD938x, §6.1) — no Server funciona normalmente. Entrada duplicada cosmética no menu do systemd-boot depois de um `apt upgrade` (§5.1) — não investigada a fundo, não afeta o funcionamento.
+**Limitação documentada nesta fase, depois corrigida (ver §9):** áudio no Desktop não funcionava (§6.1) — no Server funcionava normalmente. Entrada duplicada cosmética no menu do systemd-boot depois de um `apt upgrade` (§5.1) — não investigada a fundo, não afeta o funcionamento.
 
 ## 5.1 `apt upgrade` no Server — não quebra o HDMI (ao contrário da imagem original) 🎉
 
@@ -416,6 +416,39 @@ Solução implementada ([scripts/lib/inner-install-bootentry-dedupe.sh](../scrip
 **8.9 Considerado e descartado: repositório apt oficial da Radxa (`rsetup`).** Testado diretamente contra a infraestrutura real (`radxa-repo.github.io`): `bookworm/dists/rockchip-bookworm/Release` → 200 OK (repo real, funciona pra Rockchip/Debian), mas `bookworm/dists/qcom-bookworm/Release` e `resolute/dists/{qcom,radxa}-resolute/Release` → 404. **Não existe conteúdo publicado pra chips Qualcomm nem pra Ubuntu 26.04 ainda.** Alternativa investigada (`.deb` avulso do `radxa-pkg/rsetup` nas releases do GitHub) também descartada por ora: o pacote depende de `u-boot-menu` (irrelevante e potencialmente confuso no nosso sistema, que usa systemd-boot, não U-Boot — o tipo de fonte de confusão que acabamos de resolver no item 8.2) e de `librtui` (mais uma dependência fora dos repositórios padrão, exigindo outro `.deb` avulso). Custo/benefício não favorável por enquanto — não implementado.
 
 Depois de tudo isso, as imagens finais foram remontadas: `output/radxa-dragon-q6a_resolute_server_final.img.xz` e `output/radxa-dragon-q6a_resolute_desktop_final.img.xz`, e os arquivos de release (partes ≤1,5GB + SHA256SUMS) em `output/release/` foram regenerados.
+
+## 9. Áudio do Desktop: causa raiz real encontrada e corrigida (a hipótese do §6.1 estava errada)
+
+Depois que o usuário confirmou o áudio funcionando de fato no hardware real (Server e, na época, achávamos que Desktop era um caso perdido), investigamos o Desktop de novo, ao vivo, direto no sistema rodando (`q6a-desktop`) — desta vez sem trocar de kernel, só inspecionando o que realmente estava (ou não) carregado.
+
+**O que o §6.1/§6.2 tinham como hipótese:** uma condição de corrida real no upstream do driver `wcd938x` (RX configurando micbias via regmap do TX antes do TX terminar de enumerar), não corrigida nem no kernel 6.18.2 nem no 7.2.3 testado depois. Essa hipótese levou à decisão de documentar como limitação conhecida e seguir em frente.
+
+**O que era de verdade:** muito mais simples, e nada a ver com corrida de driver. `lsmod` no sistema ao vivo mostrou que `snd_soc_sc8280xp` (o "machine driver" que registra o card ALSA) estava carregado, mas nenhum destes estava:
+
+- `soundwire-qcom` (o controlador SoundWire da Qualcomm em si — só o `soundwire_bus`, o *core* genérico, estava carregado)
+- `lpasscc-sc7280` / `lpasscorecc-sc7280` (clocks do LPASS)
+- `snd-soc-lpass-rx-macro` / `tx-macro` / `wsa-macro` / `va-macro` (as "macros" digitais do codec, que fornecem o clock `iface` que o controlador SoundWire pede)
+- `snd-soc-wcd938x` / `snd-soc-wcd-common` / `snd-soc-wcd-classh` / `snd-soc-wcd-mbhc` (o codec WCD938x propriamente dito — só o `snd-soc-wcd938x-sdw`, o "encaixe" SoundWire dele, tinha sido autocarregado pelo modalias `sdw:`)
+
+`dmesg` confirmava, em cascata:
+```
+platform sound: deferred probe pending: snd-sc8280xp: WCD Playback: codec dai not found
+```
+E, olhando `/sys/kernel/debug/devices_deferred` depois de carregar o controlador manualmente:
+```
+3210000.soundwire   qcom-soundwire: unable to get iface clock
+```
+O clock `iface` do controlador SoundWire vem, pelo device-tree (`clocks = <&codec_3200000>`, resolvido via `phandle`), do nó `codec@3200000` (`qcom,sc7280-lpass-rx-macro`) — ou seja, sem o driver da macro RX carregado, o controlador SoundWire nem consegue pedir seu próprio clock, e desiste (deferred probe) antes mesmo de tentar falar com o barramento.
+
+**Confirmado ao vivo, passo a passo, sem reiniciar:** carregando manualmente, na ordem `lpasscc-sc7280` → `lpasscorecc-sc7280` → as quatro macros LPASS → `soundwire-qcom` (com `bind` manual via sysfs pros dois controladores) → `snd-soc-wcd-common`/`classh`/`mbhc` → `snd-soc-wcd938x`, o codec WCD938x apareceu no barramento (`/sys/bus/soundwire/devices/sdw:2:0:0217:010d:00:4` e `sdw:3:0:0217:010d:00:3` — vendor/part ID reais do WCD938x) e se vinculou ao driver. O `devices_deferred` esvaziou. **Nenhuma linha de código do kernel foi tocada** — só carregar os módulos que já estavam instalados, mas nunca eram puxados sozinhos no boot.
+
+**Por que eles nunca eram autocarregados sozinhos:** os aliases de `modprobe` pra esses módulos existem certinho em `/lib/modules/.../modules.alias` (`depmod` não estava desatualizado) — então em teoria o `udev`/`systemd-udevd` deveria autocarregá-los via `MODALIAS` normalmente, como faz pra praticamente todo o resto do hardware da placa. Não investigamos a fundo *por que* esse autoload específico falha só com o Desktop ativo (GNOME provavelmente muda a ordem/timing de startup do `systemd-udevd` ou de algum outro serviço o suficiente pra essa cadeia de dependência de clock não fechar a tempo) — mas não precisamos entender o "porquê" do autoload falhar pra ter uma correção robusta: forçar o carregamento explicitamente resolve o efeito, independente da causa exata do autoload.
+
+**Correção aplicada:** [scripts/lib/inner-fix-desktop-audio-soundwire.sh](../scripts/lib/inner-fix-desktop-audio-soundwire.sh) (chamado por [scripts/07d-fix-desktop-audio-soundwire.sh](../scripts/07d-fix-desktop-audio-soundwire.sh), só no fluxo Desktop do `build.sh`) grava `/etc/modules-load.d/dragon-q6a-audio.conf` listando os 13 módulos acima — `systemd-modules-load.service` carrega todos, bem cedo no boot, e o mecanismo de *deferred probe* do próprio kernel resolve a ordem de dependência sozinho (não precisa ser uma lista topologicamente ordenada; só precisa que todos eventualmente carreguem).
+
+**Testado no hardware real após reboot limpo (sem nenhum hack de bind manual):** `aplay -l` mostra o card, som audível tanto pela **saída HDMI** quanto pelo **fone de ouvido** (P2), incluindo o teste padrão de canais "Front Left"/"Front Right" do `speaker-test`. Único reparo cosmético notado pelo usuário: uma leve distorção nesse teste de canais do fone — não investigada ainda, não impede o uso normal (música/vídeo/chamadas).
+
+**Conclusão revisada:** o §6.1/§6.2 registram fielmente o processo de investigação da época (inclusive o teste do kernel `edge`, que continua sendo uma decisão válida e documentada — não foi tempo perdido, foi eliminação de hipótese), mas a conclusão final de "bug de corrida do upstream, sem solução no nosso escopo" estava **errada**. A causa raiz real era de configuração de boot (autoload de módulos), plenamente corrigível sem trocar de kernel nem patchear driver nenhum. Fica como lição registrada: quando um `deferred probe` nunca resolve sozinho, vale sempre checar `lsmod`/`/sys/kernel/debug/devices_deferred` antes de assumir que é um bug de driver — pode ser só um módulo que nunca chegou a carregar.
 
 ## Fontes consultadas
 

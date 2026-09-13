@@ -19,7 +19,7 @@ Sibling project of [kali-radxa-dragon-q6a](https://github.com/rafaelwms/kali-rad
 | Base | Ubuntu 26.04.1 LTS arm64, kernel 6.18.2 (mainline, via Armbian) | Same base + `ubuntu-desktop-minimal` (GNOME, no office suite/games) |
 | HDMI | ✅ hardware-accelerated (Adreno GPU) | ✅ same |
 | Wi-Fi + Bluetooth | ✅ onboard, native driver | ✅ same |
-| Audio | ✅ works (headphone + HDMI) | ⚠️ **known bug, not working** — see [Known limitations](#known-limitations) |
+| Audio | ✅ works (headphone + HDMI) | ✅ same (needed an extra fix, see below) |
 | `apt upgrade` | ✅ confirmed does **not** break HDMI | ✅ same |
 | Browser | — | Firefox (native `.deb`, official Mozilla repo — no snap) |
 | Software center | — | `gnome-software` (native, no snap) |
@@ -29,7 +29,6 @@ Root partition grows automatically to fill the whole disk on first boot. Each de
 
 ### Known limitations
 
-- **Desktop audio doesn't work.** Root cause: a real upstream kernel race condition in the SoundWire bus initialization — the WCD938x audio codec never enumerates on the bus when GNOME is active (works fine on the Server image with the identical kernel). We tested a newer kernel (7.2.3) specifically to fix this; it made the SoundWire bus enumerate the codec, but a different port-mismatch bug appeared and audio still didn't work — and that kernel broke HDMI entirely on this board. Reverted. Details in [docs/pesquisa.md, section 6.1](docs/pesquisa.md).
 - The NPU (Hexagon DSP, AI acceleration) is out of scope — it depends on proprietary vendor blobs not available for the mainline kernel we use.
 
 ### Install a pre-built image
@@ -70,7 +69,8 @@ The stock Radxa OS image for this board has two known problems: **HDMI stops wor
 - **Audio root-caused for real, not guessed.** Live inspection of the working Kali install found a broken symlink in `alsa-ucm-conf` pointing at a directory that doesn't exist in the stock package version — confirmed against two upstream Armbian fixes for this exact board. A Radxa backport of `alsa-ucm-conf` plus the correct UCM activation sequence (`alsaucm ... set _verb HiFi set _enadev Headphones`) got real, audible sound working on the Server image.
 - **Wrong assumption caught and corrected mid-project.** Wi-Fi was initially assumed to need an external USB dongle (missing device-tree node for the PCIe path). Testing without one showed it worked anyway — the onboard module uses the same AIC8800-family chip over an internal USB path, confirmed by matching the exact device-tree node. No dongle needed after all.
 - **`apt upgrade` resilience validated on real hardware** — the exact problem that motivated this whole project, tested directly: full package upgrade, reboot, HDMI and everything else still working. (A harmless cosmetic side effect — a duplicate boot-menu entry from systemd's own `kernel-install` — was root-caused and fixed with a small self-healing service.)
-- **A newer kernel was tested and rejected, on purpose.** When a real SoundWire/audio bug turned up on the Desktop image, we built and tested kernel 7.2.3 specifically to see if it fixed it. It didn't (a different bug appeared instead), and it broke HDMI outright on this board — a regression the Radxa team itself has confirmed and advises against. We reverted and documented the audio bug as a known limitation instead of shipping a worse trade-off.
+- **A newer kernel was tested and rejected, on purpose.** When the Desktop image's SoundWire/audio bug turned up, we first built and tested kernel 7.2.3 to see if it fixed it. It didn't (a different bug appeared instead), and it broke HDMI outright on this board — a regression the Radxa team itself has confirmed and advises against. We reverted rather than ship a worse trade-off.
+- **Desktop audio: root cause found for real, fixed.** What looked like an unfixable upstream kernel race turned out to be simpler: on the Desktop image, the SoundWire controller, the LPASS codec-macro clocks, and the WCD938x codec driver never get autoloaded at boot, so the ALSA card never registers (confirmed live: manually `modprobe`-ing them in the right order made the card appear immediately, no kernel patch needed). Fixed by explicitly loading those modules via `systemd-modules-load.service` (see [scripts/07d-fix-desktop-audio-soundwire.sh](scripts/07d-fix-desktop-audio-soundwire.sh)) — confirmed working on real hardware, both headphone and HDMI output, after a clean reboot. Details in [docs/pesquisa.md, section 6.1](docs/pesquisa.md).
 - **A quieter bug found by accident:** every device flashed from the same image was getting the *exact same* `machine-id` (baked in by `systemd` during the build's `apt install`, never reset) — fixed by clearing it as the last build step, so each device generates its own on first boot.
 
 The full, warts-and-included technical log — every dead end, every root cause, every command — is in [`docs/pesquisa.md`](docs/pesquisa.md) (in Portuguese). The commit history tells the same story chronologically if you'd rather read it that way.
@@ -104,7 +104,7 @@ docs/pesquisa.md     the full technical research log (Portuguese)
 | Base | Ubuntu 26.04.1 LTS arm64, kernel 6.18.2 (mainline, via Armbian) | Mesma base + `ubuntu-desktop-minimal` (GNOME, sem suíte de escritório/jogos) |
 | HDMI | ✅ com aceleração de GPU (Adreno) | ✅ igual |
 | Wi-Fi + Bluetooth | ✅ onboard, driver nativo | ✅ igual |
-| Áudio | ✅ funciona (fone + HDMI) | ⚠️ **bug conhecido, não funciona** — ver [Limitações conhecidas](#limitações-conhecidas) |
+| Áudio | ✅ funciona (fone + HDMI) | ✅ igual (precisou de um fix extra, ver abaixo) |
 | `apt upgrade` | ✅ confirmado que não quebra o HDMI | ✅ igual |
 | Navegador | — | Firefox (`.deb` nativo, repo oficial da Mozilla — sem snap) |
 | Central de software | — | `gnome-software` (nativo, sem snap) |
@@ -114,7 +114,6 @@ A partição raiz cresce sozinha pra ocupar o disco todo no primeiro boot. Cada 
 
 ### Limitações conhecidas
 
-- **O áudio do Desktop não funciona.** Causa raiz: uma corrida de inicialização real do kernel no barramento SoundWire — o codec de áudio WCD938x nunca enumera nesse barramento quando o GNOME está ativo (funciona normalmente no Server, com o kernel idêntico). Testamos um kernel mais novo (7.2.3) especificamente pra tentar corrigir isso; o barramento passou a enumerar o codec, mas apareceu um bug diferente de incompatibilidade de portas e o áudio continuou não funcionando — e esse kernel quebrou o HDMI de vez nessa placa. Revertido. Detalhes em [docs/pesquisa.md, seção 6.1](docs/pesquisa.md).
 - A NPU (Hexagon DSP, aceleração de IA) está fora do escopo — depende de blobs proprietários do fabricante que não têm suporte maduro no kernel mainline que usamos.
 
 ### Instalar uma imagem pronta
@@ -155,7 +154,8 @@ A imagem stock da Radxa OS pra essa placa tem dois problemas conhecidos: **o HDM
 - **Áudio com causa raiz confirmada de verdade, não só suposição.** Inspecionar ao vivo a instalação Kali funcionando achou um symlink quebrado no `alsa-ucm-conf`, apontando pra um diretório que não existe na versão stock do pacote — confirmado contra dois fixes do Armbian pra essa placa exata. Um backport da Radxa do `alsa-ucm-conf`, mais a sequência certa de ativação do UCM (`alsaucm ... set _verb HiFi set _enadev Headphones`), fez o som sair de verdade, audível, no Server.
 - **Suposição errada, pega e corrigida no meio do projeto.** Achávamos que o Wi-Fi precisava de um dongle USB externo (faltava o nó de device-tree do caminho PCIe). Testando sem dongle nenhum, funcionou do mesmo jeito — o módulo onboard usa o mesmo chip da família AIC8800, só que por um caminho USB interno, confirmado batendo o nó exato do device-tree. No fim, dongle nenhum era necessário.
 - **Resiliência do `apt upgrade` validada no hardware real** — exatamente o problema que motivou o projeto inteiro, testado direto: upgrade completo de pacotes, reinício, HDMI e tudo mais continuando normal. (Um efeito colateral cosmético e inofensivo — uma entrada duplicada no menu de boot, criada pelo próprio `kernel-install` do systemd — teve a causa raiz encontrada e corrigida com um pequeno serviço que se autocorrige.)
-- **Um kernel mais novo foi testado e rejeitado, de propósito.** Quando um bug real de áudio (SoundWire) apareceu no Desktop, construímos e testamos o kernel 7.2.3 especificamente pra ver se resolvia. Não resolveu (apareceu um bug diferente no lugar), e ainda quebrou o HDMI de vez nessa placa — uma regressão que a própria equipe da Radxa já confirma e recomenda evitar. Revertemos e documentamos o bug de áudio como limitação conhecida, em vez de entregar uma troca pior.
+- **Um kernel mais novo foi testado e rejeitado, de propósito.** Quando o bug de áudio (SoundWire) do Desktop apareceu, primeiro construímos e testamos o kernel 7.2.3 pra ver se resolvia. Não resolveu (apareceu um bug diferente no lugar), e ainda quebrou o HDMI de vez nessa placa — uma regressão que a própria equipe da Radxa já confirma e recomenda evitar. Revertemos em vez de entregar uma troca pior.
+- **Áudio do Desktop: causa raiz encontrada de verdade, corrigida.** O que parecia ser uma corrida (race condition) irrecuperável do kernel mainline era, na real, mais simples: na imagem Desktop, o controlador SoundWire, os clocks das "macros" de codec do LPASS e o driver do codec WCD938x nunca são carregados sozinhos no boot, então o card ALSA nunca termina de se registrar (confirmado ao vivo: dar `modprobe` manual neles na ordem certa fez o card aparecer na hora, sem precisar de nenhum patch de kernel). Corrigido carregando esses módulos explicitamente via `systemd-modules-load.service` (ver [scripts/07d-fix-desktop-audio-soundwire.sh](scripts/07d-fix-desktop-audio-soundwire.sh)) — confirmado funcionando no hardware real, fone e HDMI, depois de um reboot limpo. Detalhes em [docs/pesquisa.md, seção 6.1](docs/pesquisa.md).
 - **Um bug mais discreto, achado por acaso:** todo aparelho gravado com a mesma imagem estava saindo com o **mesmo `machine-id`** (gerado pelo `systemd` durante o `apt install` do build, nunca zerado depois) — corrigido zerando ele como último passo do build, cada aparelho gera o seu no primeiro boot.
 
 O log técnico completo, sem cortes — cada beco sem saída, cada causa raiz, cada comando — está em [`docs/pesquisa.md`](docs/pesquisa.md). O histórico de commits conta a mesma história em ordem cronológica, se preferir ler assim.

@@ -32,7 +32,11 @@ fi
 echo ">>> Compilando kernel (BOARD=radxa-dragon-q6a BRANCH=current)..."
 (
 	cd "$ARMBIAN_DIR"
-	./compile.sh kernel BOARD=radxa-dragon-q6a BRANCH=current
+	# KERNEL_BTF=no: a etapa de BTF do LD do kernel pede mais RAM do que
+	# máquinas com pouca memória (ou sem cache remoto do Armbian disponível)
+	# costumam ter livre -- BTF só importa pra ferramentas avançadas de
+	# BPF/CO-RE, que não usamos aqui (GPU/áudio/rede não dependem disso).
+	./compile.sh kernel BOARD=radxa-dragon-q6a BRANCH=current KERNEL_BTF=no
 )
 
 mkdir -p "$OUT_DIR"

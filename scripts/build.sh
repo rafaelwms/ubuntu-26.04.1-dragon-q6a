@@ -51,7 +51,6 @@ Next steps:
     Triple-check the device with `lsblk` first -- this erases it completely.
 EOF
 		;;
-	desktop_audio_note) echo "Note: audio is currently NOT working on the Desktop image (known upstream kernel bug, see docs/pesquisa.md section 6.1). Audio works fine on the Server image." ;;
 	goodbye) echo "Bye!" ;;
 	esac
 }
@@ -85,7 +84,6 @@ Próximos passos:
     Confira bem o dispositivo com `lsblk` antes -- isso apaga tudo nele.
 EOF
 		;;
-	desktop_audio_note) echo "Nota: o áudio atualmente NÃO funciona na imagem Desktop (bug conhecido do kernel, ver docs/pesquisa.md seção 6.1). No Server o áudio funciona normalmente." ;;
 	goodbye) echo "Até mais!" ;;
 	esac
 }
@@ -142,6 +140,7 @@ if [ "$IMAGE_TYPE" = "desktop" ]; then
 	run_step ./scripts/07a-fix-desktop-hostname.sh
 	run_step ./scripts/07b-install-firefox.sh
 	run_step ./scripts/07c-install-gnome-software.sh
+	run_step ./scripts/07d-fix-desktop-audio-soundwire.sh
 fi
 
 run_step ./scripts/06a-fix-locale.sh
@@ -157,6 +156,5 @@ msg done_msg
 echo "$(msg image_at) output/${IMG_NAME}.xz"
 echo "$(msg checksum) $(sha256sum "output/${IMG_NAME}.xz" | cut -d' ' -f1)"
 msg next_steps
-[ "$IMAGE_TYPE" = "desktop" ] && { echo; msg desktop_audio_note; }
 echo
 msg goodbye

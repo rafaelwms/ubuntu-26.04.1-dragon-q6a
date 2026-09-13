@@ -81,7 +81,6 @@ Next steps:
      first boot -- no manual resizing needed.
 EOF
 		;;
-	desktop_audio_note) echo "  Note: audio is currently NOT working on the Desktop image (known upstream kernel bug, see docs/pesquisa.md section 6.1). Audio works fine on the Server image." ;;
 	missing_dep) echo "ERROR: required command not found:" ;;
 	goodbye) echo "Bye!" ;;
 	esac
@@ -139,7 +138,6 @@ Próximos passos:
      boot -- não precisa redimensionar na mão.
 EOF
 		;;
-	desktop_audio_note) echo "  Nota: o áudio atualmente NÃO funciona na imagem Desktop (bug conhecido do kernel, ver docs/pesquisa.md seção 6.1). No Server o áudio funciona normalmente." ;;
 	missing_dep) echo "ERRO: comando necessário não encontrado:" ;;
 	goodbye) echo "Até mais!" ;;
 	esac
@@ -329,6 +327,5 @@ xzcat "$IMG_XZ" | sudo dd of="$DEVICE" bs=4M status=progress conv=fsync
 sync
 msg flash_done
 msg next_steps
-[ "$IMAGE_TYPE" = "desktop" ] && msg desktop_audio_note
 echo
 msg goodbye

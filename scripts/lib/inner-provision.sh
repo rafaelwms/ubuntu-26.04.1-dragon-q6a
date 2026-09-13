@@ -13,7 +13,8 @@ rm -rf /root/pkgs
 
 cd /tmp
 wget -q "$UCM_URL" -O ucm.deb
-dpkg -i ucm.deb
+dpkg -i ucm.deb || true
+apt-get -f install -y # alsa-ucm-conf depende de libasound2(t64), ausente no rootfs mínimo -- ver docs/pesquisa.md §4.1
 rm -f ucm.deb
 
 update-initramfs -u -k all
