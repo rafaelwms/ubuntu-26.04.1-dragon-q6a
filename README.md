@@ -20,6 +20,7 @@ Sibling project of [kali-radxa-dragon-q6a](https://github.com/rafaelwms/kali-rad
 | HDMI | ✅ hardware-accelerated (Adreno GPU) | ✅ same |
 | Wi-Fi + Bluetooth | ✅ onboard, native driver | ✅ same |
 | Audio | ✅ works (headphone + HDMI) | ✅ same (needed an extra fix, see below) |
+| NPU (Hexagon DSP, AI) | ✅ runtime ready out of the box | ✅ same |
 | `apt upgrade` | ✅ confirmed does **not** break HDMI | ✅ same |
 | Browser | — | Firefox (native `.deb`, official Mozilla repo — no snap) |
 | Software center | — | `gnome-software` (native, no snap) |
@@ -27,9 +28,11 @@ Sibling project of [kali-radxa-dragon-q6a](https://github.com/rafaelwms/kali-rad
 
 Root partition grows automatically to fill the whole disk on first boot. Each device gets its own unique `machine-id`, generated on first boot.
 
-### Known limitations
+### NPU (AI acceleration)
 
-- The NPU (Hexagon DSP, AI acceleration) is out of scope — it depends on proprietary vendor blobs not available for the mainline kernel we use.
+Both images ship with the Hexagon DSP/NPU runtime pre-installed and working — FastRPC transport (open source, `github.com/quic/fastrpc`), the DSP-side firmware, and permissions all set up out of the box. Confirmed live on real hardware: a Llama 3.2 1B model running actual inference on the NPU (not the CPU), via Qualcomm's Genie runtime.
+
+What's *not* bundled, by design: Qualcomm's QAIRT SDK itself (~2GB of model-conversion tooling, free but requires a Qualcomm account to download) — that's a developer tool, not part of the OS, same reason we don't ship the Android NDK on a phone. Grab it from [Qualcomm Software Center](https://softwarecenter.qualcomm.com) when you want to convert/run your own models; the runtime foundation on the device is already there waiting for it. Full walkthrough in [docs/pesquisa.md, section 10](docs/pesquisa.md).
 
 ### Install a pre-built image
 
@@ -107,6 +110,7 @@ docs/pesquisa.md     the full technical research log (Portuguese)
 | HDMI | ✅ com aceleração de GPU (Adreno) | ✅ igual |
 | Wi-Fi + Bluetooth | ✅ onboard, driver nativo | ✅ igual |
 | Áudio | ✅ funciona (fone + HDMI) | ✅ igual (precisou de um fix extra, ver abaixo) |
+| NPU (Hexagon DSP, IA) | ✅ runtime pronto de fábrica | ✅ igual |
 | `apt upgrade` | ✅ confirmado que não quebra o HDMI | ✅ igual |
 | Navegador | — | Firefox (`.deb` nativo, repo oficial da Mozilla — sem snap) |
 | Central de software | — | `gnome-software` (nativo, sem snap) |
@@ -114,9 +118,11 @@ docs/pesquisa.md     the full technical research log (Portuguese)
 
 A partição raiz cresce sozinha pra ocupar o disco todo no primeiro boot. Cada aparelho gera seu próprio `machine-id` único no primeiro boot.
 
-### Limitações conhecidas
+### NPU (aceleração de IA)
 
-- A NPU (Hexagon DSP, aceleração de IA) está fora do escopo — depende de blobs proprietários do fabricante que não têm suporte maduro no kernel mainline que usamos.
+As duas imagens já saem com o runtime da NPU/Hexagon DSP instalado e funcionando — transporte FastRPC (open source, `github.com/quic/fastrpc`), firmware do lado do DSP, e permissões, tudo pronto de fábrica. Confirmado ao vivo no hardware real: um modelo Llama 3.2 1B rodando inferência de verdade na NPU (não na CPU), via runtime Genie da Qualcomm.
+
+O que **não** vem embutido, de propósito: o QAIRT SDK da Qualcomm em si (~2GB de ferramentas de conversão de modelo, grátis mas exige conta Qualcomm pra baixar) — é ferramenta de desenvolvedor, não faz parte do SO, pelo mesmo motivo que não embutimos o Android NDK num celular. Baixe em [Qualcomm Software Center](https://softwarecenter.qualcomm.com) quando quiser converter/rodar seus próprios modelos — a base no aparelho já está pronta esperando por ele. Passo a passo completo em [docs/pesquisa.md, seção 10](docs/pesquisa.md).
 
 ### Instalar uma imagem pronta
 

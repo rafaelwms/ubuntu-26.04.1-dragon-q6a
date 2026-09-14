@@ -450,6 +450,78 @@ O clock `iface` do controlador SoundWire vem, pelo device-tree (`clocks = <&code
 
 **Conclusão revisada:** o §6.1/§6.2 registram fielmente o processo de investigação da época (inclusive o teste do kernel `edge`, que continua sendo uma decisão válida e documentada — não foi tempo perdido, foi eliminação de hipótese), mas a conclusão final de "bug de corrida do upstream, sem solução no nosso escopo" estava **errada**. A causa raiz real era de configuração de boot (autoload de módulos), plenamente corrigível sem trocar de kernel nem patchear driver nenhum. Fica como lição registrada: quando um `deferred probe` nunca resolve sozinho, vale sempre checar `lsmod`/`/sys/kernel/debug/devices_deferred` antes de assumir que é um bug de driver — pode ser só um módulo que nunca chegou a carregar.
 
+## 10. NPU (Hexagon DSP/HTP) funcionando de verdade — inferência real no hardware
+
+Depois de fechar a v1.1.0 (áudio do Desktop corrigido), o objetivo seguinte foi tentar ativar a NPU (Hexagon Tensor Accelerator, até 12 TOPS) — algo que o §2/"Trade-off aceito" original tinha descartado como fora de escopo, achando que dependia de blobs proprietários sem suporte no kernel mainline. Essa suposição nunca tinha sido testada ao vivo — só investigada por cima. Testando de verdade, boa parte já funcionava.
+
+### 10.1 Kernel: já pronto, sem precisar mexer em nada
+
+Inspecionando o sistema ao vivo (mesma metodologia do §9): `remoteproc1` (cdsp) já reportava `running`, o módulo `fastrpc.ko` já estava carregado, e os nós `/dev/fastrpc-adsp`, `/dev/fastrpc-cdsp`, `/dev/fastrpc-cdsp-secure` já existiam — com os 12 contextos IOMMU (`compute-cb@N`) do device-tree corretamente vinculados. Ou seja: **toda a integração de kernel (remoteproc + FastRPC + proteção de memória via IOMMU) já vem pronta no mainline 6.18.2** que já estávamos usando. Isso normalmente é o ponto mais difícil em bring-up de placas Qualcomm — já estava resolvido.
+
+### 10.2 Userspace: o que realmente faltava
+
+Nada de biblioteca relacionada a rodar modelo (`libQnn*`, `libcdsprpc.so`, `libsnpe`) vinha instalado — esperado, já que isso é específico da stack de IA da Qualcomm, não faz parte de nenhum pacote apt padrão do Ubuntu. A peça central que faltava: **QAIRT SDK** (Qualcomm AI Runtime, antigo SNPE/QNN).
+
+**Baixando o SDK:** a [documentação oficial da Radxa pra essa placa exata](https://docs.radxa.com/en/dragon/q6a/app-dev/npu-dev/qairt-install) indica a versão `2.42.0.251225`, disponível gratuitamente (edição "Community") em [softwarecenter.qualcomm.com](https://softwarecenter.qualcomm.com) — precisa de conta Qualcomm (gratuita), mas nenhum pagamento. O link direto de download (`softwarecenter.qualcomm.com/api/download/...`) dá 403 sem sessão autenticada — só funciona clicando "Download" logado no portal (confirmado testando com `curl` puro vs. navegador autenticado). O cadastro de conta nova teve um bug real do lado da Qualcomm (erro genérico "Sorry, we are not able to complete your registration" — reproduzido idêntico com "Brazil" e com "United States" como Work Location, confirmando que não era específico de país, e sim uma instabilidade passageira do backend deles); resolvido tentando de novo depois de alguns minutos.
+
+Confirmado o hardware: `qcom,sc7280-cdsp-pas` (o binding do cDSP dessa placa reaproveita a família SC7280) e SoC `qcom,qcm6490` — no config do QAIRT isso mapeia pra **`dsp_arch: v68`, `soc_id: 35`**.
+
+### 10.3 `libcdsprpc.so`: a peça que "faltava" não era proprietária
+
+O SDK sozinho não é suficiente — ele espera `libcdsprpc.so` já presente no sistema (normalmente vem de uma BSP vendor). Rodando `qnn-platform-validator --backend dsp --testBackend` (ferramenta do próprio SDK, não precisa de nenhum modelo) confirmou isso exatamente:
+```
+Backend Hardware  : Supported
+Backend Libraries : Not Found   # faltava libcdsprpc.so
+```
+
+A suposição inicial era que essa lib seria proprietária e inacessível — **errada**. `libadsprpc`/`libcdsprpc`/`libsdsprpc` são parte do projeto **[quic/fastrpc](https://github.com/quic/fastrpc)**, que a própria Qualcomm publicou como código aberto. A Radxa empacota esse projeto em `.deb` pronto: [`radxa-pkg/fastrpc`](https://github.com/radxa-pkg/fastrpc/releases) (pacotes `fastrpc`, `fastrpc-dev`, `libcdsprpc1`, `libadsprpc1`, `libsdsprpc1`, mais os "default listener" de cada DSP). Instalado, o pacote já resolve tudo sozinho:
+- Cria o link `libcdsprpc.so -> libcdsprpc.so.1.0.0` (o nome sem versão que o QNN abre via `dlopen`).
+- Traz uma regra udev própria (`60-fastrpc.rules`) que, quando o nó `/dev/fastrpc-cdsp` aparece, ativa automaticamente o daemon `cdsprpcd.service` via `ENV{SYSTEMD_WANTS}` — sem precisar de nenhum `systemctl enable` manual. Também cria o grupo `fastrpc` (mais correto que abrir os nós com `MODE=0666` pra qualquer usuário, como fizemos manualmente numa tentativa anterior, no §"regra udev" desta sessão — o script reproduzível usa o grupo, não a permissão aberta).
+- O pacote traz um `setup-dsp.sh` (hook do `postinst`) que **já reconhece "Radxa Dragon Q6A" pelo nome** (`cat /sys/firmware/devicetree/base/model`) e cria `/usr/lib/dsp -> /usr/share/qcom/qcs6490/radxa/dragon-q6a/dsp` sozinho.
+
+Reteste depois de instalar:
+```
+Backend Libraries : Found
+Unit Test         : Failed   # ainda faltava o firmware do DSP em si
+```
+
+### 10.4 Firmware do DSP: mais dois pacotes da Radxa
+
+O `qnn-platform-validator` ainda falhava tentando carregar um "skel" de teste (`libQnnHtpV68CalculatorStub.so`) — faltava o **firmware que roda de fato dentro do cDSP** (o `fastrpc_shell_3`, o "carregador" que permite o DSP aceitar bibliotecas não assinadas em modo desenvolvimento, mais as libs de NN/visão que ficam ao lado dele). Dois pacotes resolveram:
+- [`radxa-pkg/radxa-firmware`](https://github.com/radxa-pkg/radxa-firmware/releases) → `radxa-firmware-qcs6490_*.deb` (traz `/usr/share/qcom/qcs6490/radxa/dragon-q6a/dsp/{adsp,cdsp}/*`, incluindo `fastrpc_shell_3`/`fastrpc_shell_unsigned_3`).
+- [`radxa-pkg/audioreach-topology`](https://github.com/radxa-pkg/audioreach-topology/releases) → `firmware-qcom-audioreach_*.deb` (dependência do pacote acima).
+
+Com os dois instalados e `ADSP_LIBRARY_PATH` apontando pro diretório de teste + `/usr/lib/dsp/cdsp`, o teste passou de verdade:
+```
+Unit Test on the backend DSP: Passed.
+QNN is supported for backend DSP on the device.
+```
+
+### 10.5 Prova de fogo: LLM rodando de verdade na NPU
+
+Em vez de converter um modelo do zero (exigiria um host x86_64 com o SDK completo, ver §10.6), usamos um modelo **já pré-quantizado pra essa combinação exata de placa**: [`radxa/Llama3.2-1B-4096-qairt-v68`](https://modelscope.cn/models/radxa/Llama3.2-1B-4096-qairt-v68) no ModelScope — Llama 3.2 1B, contexto 4096, já compilado pro Hexagon v68 (~1,78GB de peso quantizado + tokenizer + o runtime `genie-t2t-run`/`libGenie.so` da própria Qualcomm, o executor de LLM do QAIRT).
+
+Baixado (via `curl` direto na API do ModelScope, sem precisar de conta) e rodado:
+```bash
+export LD_LIBRARY_PATH="$PWD:$LD_LIBRARY_PATH"
+export ADSP_LIBRARY_PATH="$PWD;/usr/lib/dsp/cdsp"
+./genie-t2t-run -c htp-model-config-llama32-1b-gqa.json -p "What is the capital of France? Answer in one short sentence."
+```
+Resultado, ao vivo, na Q6A:
+```
+[PROMPT]: What is the capital of France? Answer in one short sentence.
+[BEGIN]:  Paris is the capital of France.[END]
+```
+~7,8s no total (a maior parte é carregar o modelo de 1,78GB pela primeira vez). Resposta correta, coerente, **gerada de verdade no Hexagon DSP** — não é fallback de CPU (o `htp_backend_ext_config.json` do modelo especifica `soc_id: 35, dsp_arch: v68`, batendo exatamente com o hardware, e o backend QNN usado é `QnnHtp`).
+
+### 10.6 O que entra na imagem (e o que fica de fora, de propósito)
+
+Consolidado em [scripts/02i-install-npu-runtime.sh](../scripts/02i-install-npu-runtime.sh) + [scripts/lib/inner-install-npu-runtime.sh](../scripts/lib/inner-install-npu-runtime.sh), plugado no `build.sh` pra **Server e Desktop** (a NPU não é específica de nenhum dos dois): instala `fastrpc`/`fastrpc-dev`/`libcdsprpc1`/`libadsprpc1`/`libsdsprpc1` + os "default listener" de cada DSP, mais `firmware-qcom-audioreach` e `radxa-firmware-qcs6490` — sempre pegando a release mais recente de cada repositório `radxa-pkg` (mesmo padrão do driver Wi-Fi `aic8800` em §4.3). Usuário padrão (`radxa`) adicionado ao grupo `fastrpc` (a regra udev do próprio pacote cuida do resto).
+
+**Não entra na imagem, de propósito:** o QAIRT SDK em si (~2GB, ferramentas de desenvolvimento — conversão/quantização de modelo, `qnn-net-run`, etc.). É ferramenta de desenvolvedor, baixada à parte quando necessário, do mesmo jeito que não faz sentido embutir o Android NDK inteiro numa imagem de celular. O que a imagem já deixa pronto é a *fundação*: kernel, FastRPC, firmware do DSP, permissões — assim que alguém baixa o SDK (ou um runtime pronto como o Genie), já funciona de primeira, sem precisar caçar mais nenhuma peça.
+
+**Ainda não testado:** rodar a conversão de modelo do zero (ONNX/PyTorch → DLC → quantizado → context binary), que exige um host x86_64 Ubuntu 22.04 (conforme a doc da Radxa) — não testado ainda porque o teste com o Llama 3.2 pré-quantizado já provou que a NPU funciona de ponta a ponta; a conversão fica como próximo passo se surgir necessidade de rodar um modelo customizado.
+
 ## Fontes consultadas
 
 - [docs.radxa.com/en/dragon/q6a](https://docs.radxa.com/en/dragon/q6a) — specs, getting started, instalação em NVMe, FAQ

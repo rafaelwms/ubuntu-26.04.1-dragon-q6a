@@ -132,6 +132,7 @@ run_step ./scripts/02-install-kernel-firmware.sh
 run_step ./scripts/02b-configure-system.sh
 run_step ./scripts/02c-install-wifi-audio-tools.sh
 run_step ./scripts/02d-fix-initramfs-firmware.sh
+run_step ./scripts/02i-install-npu-runtime.sh
 run_step ./scripts/02g-firstboot-resize.sh
 run_step ./scripts/02h-cleanup-build-tools.sh
 
