@@ -522,6 +522,26 @@ Consolidado em [scripts/02i-install-npu-runtime.sh](../scripts/02i-install-npu-r
 
 **Ainda não testado:** rodar a conversão de modelo do zero (ONNX/PyTorch → DLC → quantizado → context binary), que exige um host x86_64 Ubuntu 22.04 (conforme a doc da Radxa) — não testado ainda porque o teste com o Llama 3.2 pré-quantizado já provou que a NPU funciona de ponta a ponta; a conversão fica como próximo passo se surgir necessidade de rodar um modelo customizado.
 
+### 10.7 Gap real encontrado em uso: grupo `fastrpc` só cobria o usuário `radxa` de fábrica
+
+Testando em hardware real após a v1.2.0 (imagem já flashada e em uso, `apt upgrade` incluso — ver §5.1), `id` mostrou que o usuário não estava no grupo `fastrpc`, apesar do runtime completo estar instalado e o `remoteproc` (`adsp`/`cdsp`) rodando. Causa: [scripts/lib/inner-install-npu-runtime.sh](../scripts/lib/inner-install-npu-runtime.sh) faz `usermod -aG fastrpc radxa` — só ajuda quem mantém o usuário padrão. Quem cria a própria conta no primeiro login e apaga o `radxa` (fluxo comum de quem usa esta imagem) fica sem acesso a `/dev/fastrpc-*` até rodar `usermod` manualmente.
+
+Corrigido de vez, sem depender de nenhum usuário específico: uma regra udev própria ([scripts/lib/61-fastrpc-uaccess.rules](../scripts/lib/61-fastrpc-uaccess.rules), instalada junto pelo mesmo script) adiciona a tag `uaccess` aos nós `fastrpc-*` — o mesmo mecanismo do `systemd-logind` que já libera webcam, placa de som e pendrive USB pra quem está logado no console/seat ativo, dinamicamente, sem grupo fixo. `OWNER`/`GROUP`/`MODE` do pacote original continuam intactos (`root:fastrpc`, `0640`); só ganha acesso extra quem está com sessão ativa na tela.
+
+Confirmado ao vivo, aplicando a regra manualmente (`udevadm control --reload` + `udevadm trigger`) num sistema já em uso, sem o usuário no grupo `fastrpc`:
+```
+$ getfacl /dev/fastrpc-cdsp
+# file: dev/fastrpc-cdsp
+# owner: root
+# group: fastrpc
+user::rw-
+user:rafaelwms:rw-
+group::r--
+mask::rw-
+other::---
+```
+A linha `user:rafaelwms:rw-` é a ACL dinâmica — sessão ativa, sem estar no grupo. Vira release **v1.2.1**.
+
 ## Fontes consultadas
 
 - [docs.radxa.com/en/dragon/q6a](https://docs.radxa.com/en/dragon/q6a) — specs, getting started, instalação em NVMe, FAQ
