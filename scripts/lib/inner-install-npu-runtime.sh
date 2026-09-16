@@ -42,6 +42,17 @@ ln -sfn /usr/share/qcom/qcs6490/radxa/dragon-q6a/dsp /usr/lib/dsp
 getent group fastrpc >/dev/null || groupadd --system fastrpc
 usermod -aG fastrpc radxa
 
+# O grupo estático acima só ajuda o usuário "radxa" de fábrica. Quem troca
+# esse usuário por um próprio (comum em quem usa esta imagem: cria a conta
+# no primeiro login e apaga o "radxa") fica sem acesso até alguém lembrar
+# de rodar `usermod -aG fastrpc` à mão -- foi o que aconteceu na prática.
+# Resolvemos de vez com uma regra udev de ACL dinâmica (mesmo mecanismo que
+# já libera webcam/áudio/USB pro usuário logado via systemd-logind): quem
+# estiver na sessão ativa do console ganha acesso aos nós fastrpc, não
+# importa como/quando a conta foi criada. Ver comentários no próprio
+# arquivo de regra.
+install -m 0644 /root/61-fastrpc-uaccess.rules /etc/udev/rules.d/61-fastrpc-uaccess.rules
+
 echo "=== NPU runtime instalado ==="
 echo "--- /usr/lib/dsp ---"
 ls -la /usr/lib/dsp/cdsp/ 2>&1 | head -5

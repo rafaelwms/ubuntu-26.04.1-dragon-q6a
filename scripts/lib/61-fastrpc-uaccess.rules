@@ -1,0 +1,24 @@
+# Dá acesso dinâmico aos nós do FastRPC (/dev/fastrpc-*) pra quem estiver
+# logado na sessão ativa do console/seat, via ACL do systemd-logind -- o
+# mesmo mecanismo que já libera webcam, placa de som e pendrive USB pro
+# usuário logado, sem precisar estar num grupo fixo.
+#
+# Por quê: a regra do pacote fastrpc (60-fastrpc.rules) prende o acesso ao
+# grupo "fastrpc" estático (root:fastrpc, 0640). Isso obriga todo usuário
+# novo a ser adicionado manualmente ao grupo (usermod -aG fastrpc <user>).
+# Em imagens onde o usuário "radxa" padrão é removido e outro é criado no
+# primeiro login (fluxo comum de quem usa esta imagem), ninguém fica no
+# grupo até alguém lembrar de adicionar à mão -- foi o que aconteceu aqui.
+#
+# Esta regra não mexe no OWNER/GROUP/MODE (continuam 0640 root:fastrpc,
+# como o pacote define), só adiciona a tag "uaccess" -- então serviços de
+# sistema/daemons continuam batendo na mesma permissão de sempre, e quem
+# ganha acesso extra é só a sessão ativa do console, dinamicamente.
+#
+# Arquivo próprio (não é o do pacote) pra sobreviver a `apt upgrade`.
+SUBSYSTEM=="misc", KERNEL=="fastrpc-adsp",  TAG+="uaccess"
+SUBSYSTEM=="misc", KERNEL=="fastrpc-cdsp",  TAG+="uaccess"
+SUBSYSTEM=="misc", KERNEL=="fastrpc-cdsp1", TAG+="uaccess"
+SUBSYSTEM=="misc", KERNEL=="fastrpc-gdsp0", TAG+="uaccess"
+SUBSYSTEM=="misc", KERNEL=="fastrpc-gdsp1", TAG+="uaccess"
+SUBSYSTEM=="misc", KERNEL=="fastrpc-sdsp",  TAG+="uaccess"

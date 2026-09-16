@@ -67,10 +67,11 @@ docker run --rm --privileged \
 		mkdir -p /rootfs/root/pkgs
 		cp /npu-debs/*.deb /rootfs/root/pkgs/
 		cp /scripts-lib/inner-install-npu-runtime.sh /rootfs/root/inner-install-npu-runtime.sh
+		cp /scripts-lib/61-fastrpc-uaccess.rules /rootfs/root/61-fastrpc-uaccess.rules
 		chmod +x /rootfs/root/inner-install-npu-runtime.sh
 
 		chroot /rootfs /usr/bin/qemu-aarch64-static /bin/bash /root/inner-install-npu-runtime.sh
-		rm -f /rootfs/root/inner-install-npu-runtime.sh
+		rm -f /rootfs/root/inner-install-npu-runtime.sh /rootfs/root/61-fastrpc-uaccess.rules
 	'
 
 echo ">>> Pronto."
